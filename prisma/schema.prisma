@@ -1,0 +1,94 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id         String   @id @default(uuid())
+  name       String?
+  email      String   @unique
+  avatar_url String?
+  created_at DateTime @default(now())
+
+  workspaceMembers WorkspaceMember[]
+  tasksAssigned    Task[]            @relation("AssignedTasks")
+  chatMessages     ChatMessage[]
+}
+
+model Workspace {
+  id         String   @id @default(uuid())
+  name       String
+  owner_id   String
+  created_at DateTime @default(now())
+
+  members  WorkspaceMember[]
+  projects Project[]
+}
+
+model WorkspaceMember {
+  id           String @id @default(uuid())
+  workspace_id String
+  user_id      String
+
+  workspace Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([workspace_id, user_id])
+}
+
+model Project {
+  id           String   @id @default(uuid())
+  name         String
+  workspace_id String
+  created_at   DateTime @default(now())
+
+  workspace Workspace     @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  tasks     Task[]
+  channels  ChatChannel[]
+}
+
+model Task {
+  id                String   @id @default(uuid())
+  title             String
+  description       String?  @db.Text
+  status            String   @default("TODO") // "TODO", "IN_PROGRESS", "REVIEW", "DONE"
+  priority          String   @default("MEDIUM") // "LOW", "MEDIUM", "HIGH"
+  project_id        String
+  assignee_id       String?
+  source_message_id String? // Link para o Actionable Chat
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  project  Project      @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  assignee User?        @relation("AssignedTasks", fields: [assignee_id], references: [id])
+  message  ChatMessage? @relation(fields: [source_message_id], references: [id])
+}
+
+model ChatChannel {
+  id         String  @id @default(uuid())
+  name       String
+  project_id String
+  is_general Boolean @default(false)
+
+  project  Project       @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  messages ChatMessage[]
+}
+
+model ChatMessage {
+  id         String   @id @default(uuid())
+  channel_id String
+  user_id    String
+  content    String   @db.Text
+  created_at DateTime @default(now())
+
+  channel ChatChannel @relation(fields: [channel_id], references: [id], onDelete: Cascade)
+  user    User        @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  tasks   Task[]
+}
