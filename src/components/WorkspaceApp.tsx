@@ -1,7 +1,7 @@
 "use client";
 import { startTransition, useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { CheckCheck, Folder, Plus, Users, LogOut, RefreshCw, Menu, X, Home, ListTodo, MessageSquare, Search, Layers, List } from 'lucide-react';
+import { CheckCheck, Folder, Plus, Users, LogOut, RefreshCw, Menu, X, Home, ListTodo, MessageSquare, Search, Layers, List, CalendarDays, Sparkles } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { checked, errorText, initials, loadTasks, type Task, type Workspace, type Project, type Member } from '@/lib/taskflow';
 import Dialog from './Dialog';
@@ -97,7 +97,7 @@ export default function WorkspaceApp() {
       <div className="sidebar-bottom"><button className="nav-action" disabled={!workspace} onClick={() => setModal('team')}><Users size={17} /> Equipe <span className="count">{members.length}</span></button><button className="nav-action" onClick={refresh}><RefreshCw size={16} /> Atualizar equipes</button><div className="account"><span className="avatar">{initials(user.name || 'Conta')}</span><span>{user.name}</span><button className="icon-button" title="Sair" aria-label="Sair" onClick={logout}><LogOut size={17} /></button></div></div>
     </aside>
     <main className="tf-main">
-      <div className="global-topbar"><span style={{fontWeight: "600", color: "#111827"}}>{workspace?.name || 'Moura Leite'}</span><button className="global-search" onClick={() => setModal('search')} disabled={!workspace}><Search size={15} />Pesquisar Ctrl K</button><div className="topbar-right-icons"><CheckCheck size={18} /><CalendarDays size={18} /><MessageSquare size={18} /><span className="avatar small">{initials(user.name || 'Conta')}</span></div>
+      <div className="global-topbar"><span style={{fontWeight: "600", color: "#111827"}}>{workspace?.name || 'Moura Leite'}</span><button className="global-search" onClick={() => setModal('search')} disabled={!workspace}><Search size={15} />Pesquisar Ctrl K</button><div className="topbar-right-icons"><CheckCheck size={18} /><CalendarDays size={18} /><MessageSquare size={18} /><span className="avatar small">{initials(user.name || 'Conta')}</span></div></div>
       {error && <div className="error-banner" role="alert">{error}<button className="text-button" onClick={refresh}>Tentar novamente</button></div>}
       {loading || workspaceLoading ? <div className="empty-state"><RefreshCw className="spin" size={28} /><h2>Carregando sua equipe...</h2></div> : workspace && section === 'ai' ? <WorkspaceAI /> : workspace && section === 'planner' ? <WorkspacePlanner tasks={[]} onOpen={() => {}} /> : workspace && (section === 'home' || section === 'mine') ? <WorkspaceOverview key={`${workspaceId}:${section}`} projects={projects} userId={user.id} mine={section === 'mine'} onOpen={selectProject} /> : project && workspace ? <ProjectView key={`${project.id}:${section}:${taskId || ''}`} project={project} workspace={workspace} members={members} userId={user.id} initialView={section === 'chat' ? 'chat' : 'list'} initialTaskId={taskId} /> : <div className="empty-state"><CheckCheck size={48} /><h1>{workspaces.length ? 'Crie sua primeira lista' : 'Seu trabalho, em equipe'}</h1><button className="primary" disabled={!!error} onClick={() => setModal(workspaceId ? 'project' : 'workspace')}><Plus size={18} />{workspaceId ? 'Criar lista' : 'Criar workspace'}</button></div>}
     </main>
