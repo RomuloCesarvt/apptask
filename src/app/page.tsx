@@ -68,6 +68,9 @@ function HomeContent() {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        emailRedirectTo: getAuthRedirectUrl(),
+      },
     });
 
     if (error) {
@@ -91,6 +94,7 @@ function HomeContent() {
       provider,
       options: {
         redirectTo: getAuthRedirectUrl(),
+        ...(provider === 'azure' ? { scopes: 'email' } : {}),
       },
     });
 
