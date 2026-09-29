@@ -1,9 +1,9 @@
 "use client";
 import { useState, useEffect, useRef } from 'react';
-import { Search, Bell, Settings, Star, Maximize2, X, Play, Image as ImageIcon, Mic, Paperclip, Sparkles, Flag, ChevronDown, CheckSquare, AlignLeft, CornerDownRight, MessageSquare, Send } from 'lucide-react';
+import { Search, Bell, Settings, Star, Maximize2, X, Play, Image as ImageIcon, Mic, Paperclip, Sparkles, Flag, ChevronDown, CheckSquare, AlignLeft, CornerDownRight, MessageSquare, Send, Plus } from 'lucide-react';
 import { errorText, type Task, type TaskDraft, type Message, type Comment, type Member } from '@/lib/taskflow';
 
-export default function TaskEditor({ task, source, parent, tasks, comments, members, onClose, onSave, onArchive, onComment, onSubtask, onOpen }: any) {
+export default function TaskEditor({ task, source, parent, tasks, comments, members, onClose, onSave, onArchive, onComment, onSubtask, onOpen }: { task?: Task; source?: Message; parent?: Task; tasks: Task[]; comments: Comment[]; members: Member[]; onClose: () => void; onSave: (d: TaskDraft) => Promise<void>; onArchive?: () => Promise<void>; onComment: (c: string) => Promise<void>; onSubtask: (t: Task) => void; onOpen: (task: Task) => void; }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   
   useEffect(() => {
