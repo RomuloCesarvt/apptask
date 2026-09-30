@@ -1,7 +1,36 @@
 "use client";
+import { useState, useEffect } from 'react';
 import { Search, Sparkles, Zap, Activity, Link, Plus, Clock, Users, User, Mic, FileText, ChevronDown } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
+import { checked, type AIAgent, type AIUsage } from '@/lib/taskflow';
 
-export default function WorkspaceAI() {
+export default function WorkspaceAI({ workspaceId, userId }: { workspaceId: string; userId: string }) {
+  const [agents, setAgents] = useState<AIAgent[]>([]);
+  const [usages, setUsages] = useState<AIUsage[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    async function load() {
+      try {
+        const [a, u] = await Promise.all([
+          checked(supabase.from('tf_ai_agents').select('*').eq('workspace_id', workspaceId).order('created_at')),
+          checked(supabase.from('tf_ai_usages').select('*').eq('workspace_id', workspaceId))
+        ]);
+        if (active) { setAgents(a); setUsages(u); }
+      } catch (e) {
+        // Fallback or ignore if tables don't exist yet
+        console.warn('AI Tables missing or error:', e);
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+    void load(); return () => { active = false; };
+  }, [workspaceId]);
+
+  const totalTokens = usages.reduce((acc, u) => acc + u.tokens_used, 0);
+  // Example calculation: 1 "uso" = 1000 tokens (for display purposes if no explicit usage count is tracked per prompt)
+  const usosDaIA = usages.length;
   return (
     <div style={{display: 'flex', height: '100%', width: '100%', background: '#fff', position: 'relative', overflow: 'hidden'}}>
       
@@ -60,11 +89,11 @@ export default function WorkspaceAI() {
                </div>
                <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', color: '#4b5563', cursor: 'pointer'}}>
                  <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}><Users size={16} color="#f97316" /> Todos os agentes</div>
-                 <span style={{color: '#9ca3af', fontSize: '12px'}}>2</span>
+                 <span style={{color: '#9ca3af', fontSize: '12px'}}>{agents.length}</span>
                </div>
                <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', color: '#4b5563', cursor: 'pointer'}}>
                  <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}><User size={16} color="#10b981" /> Meus agentes</div>
-                 <span style={{color: '#9ca3af', fontSize: '12px'}}>2</span>
+                 <span style={{color: '#9ca3af', fontSize: '12px'}}>{agents.length}</span>
                </div>
             </div>
           </div>
@@ -73,14 +102,14 @@ export default function WorkspaceAI() {
           <div style={{marginTop: '24px', padding: '0 12px'}}>
             <div style={{fontSize: '11px', color: '#9ca3af', fontWeight: '500', marginBottom: '12px', textTransform: 'uppercase'}}>Superagentes recentes</div>
             <div style={{display: 'flex', flexDirection: 'column', gap: '12px'}}>
-               <div style={{display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px', color: '#4b5563', cursor: 'pointer'}}>
-                 <img src="https://i.pravatar.cc/150?u=cal" style={{width: '20px', height: '20px', borderRadius: '50%'}} />
-                 Curadoria Cal
-               </div>
-               <div style={{display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px', color: '#4b5563', cursor: 'pointer'}}>
-                 <img src="https://i.pravatar.cc/150?u=parker" style={{width: '20px', height: '20px', borderRadius: '50%'}} />
-                 Pauta Parker
-               </div>
+               {agents.length === 0 ? <div style={{fontSize: '12px', color: '#9ca3af'}}>Nenhum agente ainda.</div> : agents.slice(0, 5).map(a => (
+                 <div key={a.id} style={{display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px', color: '#4b5563', cursor: 'pointer'}}>
+                   <div style={{width: '20px', height: '20px', borderRadius: '50%', background: 'linear-gradient(135deg, #e0e7ff, #ede9fe)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8b5cf6'}}>
+                     <User size={12} />
+                   </div>
+                   {a.name}
+                 </div>
+               ))}
             </div>
           </div>
           
@@ -89,12 +118,12 @@ export default function WorkspaceAI() {
         {/* Sidebar Footer Stats */}
         <div style={{padding: '16px 20px', borderTop: '1px solid #e4e6e9', display: 'flex', justifyContent: 'space-between'}}>
            <div style={{display: 'flex', flexDirection: 'column'}}>
-             <div style={{display: 'flex', alignItems: 'center', gap: '4px', color: '#10b981', fontSize: '12px', fontWeight: '500'}}><div style={{width: '6px', height: '6px', borderRadius: '50%', background: '#10b981'}}></div> 186</div>
+             <div style={{display: 'flex', alignItems: 'center', gap: '4px', color: '#10b981', fontSize: '12px', fontWeight: '500'}}><div style={{width: '6px', height: '6px', borderRadius: '50%', background: '#10b981'}}></div> {usosDaIA}</div>
              <div style={{fontSize: '10px', color: '#9ca3af'}}>Usos da IA do Brain</div>
            </div>
            <div style={{display: 'flex', flexDirection: 'column'}}>
-             <div style={{display: 'flex', alignItems: 'center', gap: '4px', color: '#9ca3af', fontSize: '12px', fontWeight: '500'}}><div style={{width: '6px', height: '6px', borderRadius: '50%', border: '1px solid #9ca3af'}}></div> 65</div>
-             <div style={{fontSize: '10px', color: '#9ca3af'}}>Créditos restantes</div>
+             <div style={{display: 'flex', alignItems: 'center', gap: '4px', color: '#9ca3af', fontSize: '12px', fontWeight: '500'}}><div style={{width: '6px', height: '6px', borderRadius: '50%', border: '1px solid #9ca3af'}}></div> {totalTokens}</div>
+             <div style={{fontSize: '10px', color: '#9ca3af'}}>Créditos (Tokens)</div>
            </div>
         </div>
       </aside>
