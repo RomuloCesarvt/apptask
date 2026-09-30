@@ -16,8 +16,6 @@ export type Task = {
   parent_id: string | null; source_message_id: string | null; archived: boolean;
   created_by: string; created_at: string; updated_at: string;
 };
-export type AIAgent = { id: string; workspace_id: string; name: string; system_prompt: string; is_active: boolean; created_at: string };
-export type AIUsage = { id: string; workspace_id: string; user_id: string; agent_id: string | null; tokens_used: number; created_at: string };
 export type TaskDraft = Pick<Task, 'title' | 'description' | 'status' | 'priority' | 'assignee_id' | 'due_date' | 'parent_id'>;
 export function errorText(error: unknown): string {
   if (error && typeof error === 'object' && 'message' in error) {

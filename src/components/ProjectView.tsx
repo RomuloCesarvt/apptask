@@ -7,12 +7,12 @@ import TasksBoard from './TasksBoard';
 import TeamChat from './TeamChat';
 import TaskEditor from './TaskEditor';
 
-export default function ProjectView({ project, workspace, members, userId, initialView = 'list', initialTaskId }: { project: Project; workspace: Workspace; members: Member[]; userId: string; initialView?: 'list' | 'chat'; initialTaskId?: string }) {
+export default function ProjectView({ project, workspace, members, userId, initialView = 'list', initialTaskId, initialDueDate }: { project: Project; workspace: Workspace; members: Member[]; userId: string; initialView?: 'list' | 'chat'; initialTaskId?: string; initialDueDate?: string }) {
   const [tasks, setTasks] = useState<Task[]>([]); const [messages, setMessages] = useState<Message[]>([]); const [comments, setComments] = useState<Comment[]>([]);
   const [error, setError] = useState(''); const [loading, setLoading] = useState(true); const [online, setOnline] = useState(false);
   const [view, setView] = useState<'board' | 'list' | 'calendar' | 'chat'>(initialView);
   const [search, setSearch] = useState(''); const [status, setStatus] = useState(''); const [priority, setPriority] = useState(''); const [mine, setMine] = useState(false); const [archived, setArchived] = useState(false);
-  const [editor, setEditor] = useState<{ task?: Task; source?: Message; parent?: Task } | null>(null);
+  const [editor, setEditor] = useState<{ task?: Task; source?: Message; parent?: Task; dueDate?: string } | null>(null);
   const [messageLimit, setMessageLimit] = useState(100); const [revision, setRevision] = useState(0);
   const initialTaskOpened = useRef(false);
   const refresh = useCallback(() => setRevision(v => v + 1), []);
@@ -31,6 +31,12 @@ export default function ProjectView({ project, workspace, members, userId, initi
     }
     void load(); return () => { active = false; };
   }, [project.id, messageLimit, revision, initialTaskId]);
+  useEffect(() => {
+    if (initialDueDate && !initialTaskOpened.current) {
+      setEditor({ dueDate: initialDueDate });
+      initialTaskOpened.current = true;
+    }
+  }, [initialDueDate]);
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;
     const changed = () => { clearTimeout(timer); timer = setTimeout(refresh, 150); };
@@ -73,6 +79,6 @@ export default function ProjectView({ project, workspace, members, userId, initi
     <div className={`project-content ${view === 'chat' ? 'chat-only' : ''}`}>
       {loading ? <div className="empty-state"><RefreshCw className="spin" size={26} /><p>Carregando projeto...</p></div> : view === 'chat' ? chat : <><TasksBoard view={view} tasks={shown} members={members} comments={comments} onOpen={openTask} onMove={async (id, status) => { try { await updateTask(id, { status }); } catch (e) { setError(errorText(e)); } }} onAdd={() => setEditor({})} /><aside className="chat-aside">{chat}</aside></>}
     </div>
-    {editor && <TaskEditor key={editor.task?.id || editor.source?.id || editor.parent?.id || 'new'} task={editor.task} source={editor.source || messages.find(m => m.id === editor.task?.source_message_id)} parent={editor.parent} tasks={tasks} comments={comments} members={members} onClose={() => setEditor(null)} onSave={saveTask} onArchive={editor.task ? async () => { await updateTask(editor.task!.id, { archived: !editor.task!.archived }); setEditor(null); } : undefined} onComment={async (content: string) => { await checked(supabase.from('tf_comments').insert({ task_id: editor.task!.id, project_id: project.id, content })); refresh(); }} onSubtask={(task: Task) => setEditor({ parent: task })} onOpen={openTask} />}
+    {editor && <TaskEditor key={editor.task?.id || editor.source?.id || editor.parent?.id || editor.dueDate || 'new'} task={editor.task} source={editor.source || messages.find(m => m.id === editor.task?.source_message_id)} parent={editor.parent} initialDueDate={editor.dueDate} tasks={tasks} comments={comments} members={members} onClose={() => setEditor(null)} onSave={saveTask} onArchive={editor.task ? async () => { await updateTask(editor.task!.id, { archived: !editor.task!.archived }); setEditor(null); } : undefined} onComment={async (content: string) => { await checked(supabase.from('tf_comments').insert({ task_id: editor.task!.id, project_id: project.id, content })); refresh(); }} onSubtask={(task: Task) => setEditor({ parent: task })} onOpen={openTask} />}
   </section>;
 }

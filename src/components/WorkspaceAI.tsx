@@ -1,215 +1,155 @@
 "use client";
-import { useState, useEffect } from 'react';
-import { Search, Sparkles, Zap, Activity, Link, Plus, Clock, Users, User, Mic, FileText, ChevronDown } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
-import { checked, type AIAgent, type AIUsage } from '@/lib/taskflow';
 
-export default function WorkspaceAI({ workspaceId, userId }: { workspaceId: string; userId: string }) {
-  const [agents, setAgents] = useState<AIAgent[]>([]);
-  const [usages, setUsages] = useState<AIUsage[]>([]);
+import { useEffect, useMemo, useState } from 'react';
+import { Bot, CheckCircle2, Circle, RefreshCw, Search, Send, Sparkles } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
+import { checked, errorText, loadTasks, today, type Priority, type Project, type Task } from '@/lib/taskflow';
+
+type Answer = { id: string; role: 'assistant' | 'user'; text: string; taskIds?: string[] };
+
+export default function WorkspaceAI({
+  workspaceId,
+  userId,
+  projects,
+  onOpen,
+}: {
+  workspaceId: string;
+  userId: string;
+  projects: Project[];
+  onOpen: (projectId: string, taskId: string) => void;
+}) {
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [prompt, setPrompt] = useState('');
+  const [projectId, setProjectId] = useState('');
+  const [answers, setAnswers] = useState<Answer[]>([
+    { id: 'welcome', role: 'assistant', text: 'Posso resumir o workspace, localizar atrasos e criar tarefas. Tudo roda sobre os dados reais, sem consumir creditos de IA.' },
+  ]);
   const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [revision, setRevision] = useState(0);
 
   useEffect(() => {
     let active = true;
-    async function load() {
-      try {
-        const [a, u] = await Promise.all([
-          checked(supabase.from('tf_ai_agents').select('*').eq('workspace_id', workspaceId).order('created_at')),
-          checked(supabase.from('tf_ai_usages').select('*').eq('workspace_id', workspaceId))
-        ]);
-        if (active) { setAgents(a); setUsages(u); }
-      } catch (e) {
-        // Fallback or ignore if tables don't exist yet
-        console.warn('AI Tables missing or error:', e);
-      } finally {
-        if (active) setLoading(false);
+    void Promise.all(projects.map(project => loadTasks(project.id)))
+      .then(rows => { if (active) { setTasks(rows.flat().filter(task => !task.archived)); setError(''); } })
+      .catch(caught => { if (active) setError(errorText(caught)); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [projects, revision, workspaceId]);
+
+  const rootTasks = useMemo(() => tasks.filter(task => !task.parent_id), [tasks]);
+  const openTasks = rootTasks.filter(task => task.status !== 'DONE');
+  const overdueTasks = openTasks.filter(task => task.due_date && task.due_date < today());
+  const mine = openTasks.filter(task => task.assignee_id === userId);
+
+  function addAnswer(answer: Omit<Answer, 'id'>) {
+    setAnswers(current => [...current, { ...answer, id: crypto.randomUUID() }]);
+  }
+
+  async function run(rawPrompt = prompt) {
+    const text = rawPrompt.trim();
+    if (!text || busy) return;
+    setPrompt('');
+    setBusy(true);
+    setError('');
+    addAnswer({ role: 'user', text });
+    try {
+      const createMatch = text.match(/^(?:\/criar|criar (?:uma )?tarefa(?: chamada)?|nova tarefa)\s*[:\-]?\s*(.+)$/i);
+      if (createMatch) {
+        const targetProject = projects.find(project => project.id === projectId) || projects[0];
+        if (!targetProject) throw new Error('Crie uma lista antes de adicionar tarefas.');
+        let title = createMatch[1].trim();
+        const priority: Priority = /urgente/i.test(title) ? 'URGENT' : /prioridade alta|alta prioridade/i.test(title) ? 'HIGH' : 'MEDIUM';
+        const tomorrow = new Date(`${today()}T12:00:00`);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        const dueDate = /amanh[aã]/i.test(title)
+          ? tomorrow.toLocaleDateString('en-CA')
+          : /hoje/i.test(title) ? today() : null;
+        title = title.replace(/\b(?:urgente|prioridade alta|alta prioridade|para hoje|hoje|para amanh[aã]|amanh[aã])\b/gi, '').replace(/\s{2,}/g, ' ').trim();
+        if (!title) throw new Error('Informe o nome da tarefa depois de "criar tarefa".');
+        const created = await checked<Task>(supabase.from('tf_tasks').insert({
+          project_id: targetProject.id,
+          title,
+          description: `Criada pelo assistente local a partir de: ${text}`,
+          status: 'TODO',
+          priority,
+          due_date: dueDate,
+          assignee_id: null,
+          parent_id: null,
+        }).select().single());
+        setTasks(current => [...current, created]);
+        addAnswer({ role: 'assistant', text: `Tarefa "${created.title}" criada em ${targetProject.name}${dueDate ? ` com prazo ${dueDate === today() ? 'para hoje' : 'para amanha'}` : ''}.`, taskIds: [created.id] });
+        return;
       }
+
+      const normalized = text.toLowerCase();
+      let matches: Task[] = [];
+      let response = '';
+      if (/atrasad/.test(normalized)) {
+        matches = overdueTasks;
+        response = matches.length ? `Encontrei ${matches.length} tarefa(s) atrasada(s).` : 'Nao ha tarefas atrasadas.';
+      } else if (/\bhoje\b/.test(normalized)) {
+        matches = openTasks.filter(task => task.due_date === today());
+        response = matches.length ? `${matches.length} tarefa(s) vencem hoje.` : 'Nenhuma tarefa vence hoje.';
+      } else if (/minha|atribu[ií]d/.test(normalized)) {
+        matches = mine;
+        response = matches.length ? `Voce tem ${matches.length} tarefa(s) em aberto.` : 'Nao ha tarefas em aberto atribuidas a voce.';
+      } else if (/conclu[ií]d|finalizad/.test(normalized)) {
+        matches = rootTasks.filter(task => task.status === 'DONE').slice(0, 20);
+        response = `${rootTasks.filter(task => task.status === 'DONE').length} tarefa(s) estao concluidas.`;
+      } else if (/urgente|prioridade/.test(normalized)) {
+        matches = openTasks.filter(task => task.priority === 'URGENT' || task.priority === 'HIGH');
+        response = matches.length ? `${matches.length} tarefa(s) exigem prioridade.` : 'Nao ha tarefas de prioridade alta ou urgente.';
+      } else if (/buscar|pesquisar|encontrar|procure/.test(normalized)) {
+        const term = normalized.replace(/.*?(buscar|pesquisar|encontrar|procure)(?: por)?\s*/i, '').trim();
+        matches = rootTasks.filter(task => `${task.title} ${task.description}`.toLowerCase().includes(term)).slice(0, 20);
+        response = matches.length ? `Encontrei ${matches.length} resultado(s) para "${term}".` : `Nao encontrei tarefas para "${term}".`;
+      } else {
+        matches = [...overdueTasks, ...openTasks.filter(task => task.priority === 'URGENT' && !overdueTasks.some(item => item.id === task.id))].slice(0, 10);
+        response = `O workspace tem ${rootTasks.length} tarefas: ${openTasks.length} em aberto, ${rootTasks.length - openTasks.length} concluidas e ${overdueTasks.length} atrasadas.`;
+      }
+      addAnswer({ role: 'assistant', text: response, taskIds: matches.map(task => task.id) });
+    } catch (caught) {
+      const message = errorText(caught);
+      setError(message);
+      addAnswer({ role: 'assistant', text: `Nao consegui concluir: ${message}` });
+    } finally {
+      setBusy(false);
     }
-    void load(); return () => { active = false; };
-  }, [workspaceId]);
+  }
 
-  const totalTokens = usages.reduce((acc, u) => acc + u.tokens_used, 0);
-  // Example calculation: 1 "uso" = 1000 tokens (for display purposes if no explicit usage count is tracked per prompt)
-  const usosDaIA = usages.length;
-  return (
-    <div style={{display: 'flex', height: '100%', width: '100%', background: '#fff', position: 'relative', overflow: 'hidden'}}>
-      
-      {/* BACKGROUND GRADIENT BLUR */}
-      <div style={{
-        position: 'absolute', top: '-10%', left: '20%', right: '-10%', height: '50%',
-        background: 'radial-gradient(ellipse at top, rgba(255, 182, 193, 0.4) 0%, rgba(135, 206, 235, 0.2) 40%, transparent 70%)',
-        filter: 'blur(60px)', zIndex: 0, pointerEvents: 'none'
-      }}></div>
-      <div style={{
-        position: 'absolute', top: '10%', right: '10%', width: '30%', height: '40%',
-        background: 'radial-gradient(circle, rgba(255, 223, 186, 0.4) 0%, transparent 70%)',
-        filter: 'blur(60px)', zIndex: 0, pointerEvents: 'none'
-      }}></div>
+  const suggestions = ['Resuma o workspace', 'Quais tarefas estao atrasadas?', 'Mostre minhas tarefas', 'Criar tarefa Revisar planejamento para hoje'];
 
-      {/* AI SIDEBAR */}
-      <aside style={{width: '260px', borderRight: '1px solid #e4e6e9', display: 'flex', flexDirection: 'column', background: '#fff', zIndex: 1, flexShrink: 0}}>
-        <div style={{padding: '20px 20px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-          <h2 style={{fontSize: '18px', fontWeight: '600', color: '#111827', margin: 0}}>IA</h2>
-          <div style={{display: 'flex', gap: '8px', color: '#6b7280'}}>
-            <div style={{cursor: 'pointer'}}>{'<<'}</div>
-            <div style={{border: '1px solid #e4e6e9', borderRadius: '4px', padding: '2px 6px', display: 'flex', alignItems: 'center', cursor: 'pointer'}}>
-              <FileText size={14} /> <ChevronDown size={12} style={{marginLeft: '4px'}} />
-            </div>
-          </div>
-        </div>
+  return <section className="assistant-shell">
+    <aside className="assistant-summary">
+      <div className="assistant-title"><span><Bot size={19} /></span><div><h2>Assistente</h2><p>Local e gratuito</p></div></div>
+      <div className="assistant-metrics"><div><strong>{openTasks.length}</strong><span>Em aberto</span></div><div><strong>{overdueTasks.length}</strong><span>Atrasadas</span></div><div><strong>{mine.length}</strong><span>Minhas</span></div></div>
+      <label>Lista para novas tarefas<select value={projectId} onChange={event => setProjectId(event.target.value)}><option value="">Primeira lista disponivel</option>{projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
+      <div className="assistant-help"><h3>Comandos disponiveis</h3><p><code>criar tarefa Nome para hoje</code></p><p><code>buscar termo</code></p><p>Pergunte por atrasadas, concluidas, prioridades ou minhas tarefas.</p></div>
+      <button className="secondary" onClick={() => setRevision(value => value + 1)}><RefreshCw size={15} />Atualizar dados</button>
+    </aside>
 
-        <div style={{flex: 1, overflowY: 'auto', padding: '10px 10px 20px'}}>
-          
-          {/* Main AI Links */}
-          <div style={{display: 'flex', flexDirection: 'column', gap: '4px'}}>
-            <div style={{display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px', background: '#f4f5f7', borderRadius: '6px', fontSize: '13px', fontWeight: '500', color: '#111827', cursor: 'pointer'}}>
-              <Sparkles size={16} color="#8b5cf6" /> Pergunte ou crie
-            </div>
-            <div style={{display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px', fontSize: '13px', color: '#4b5563', cursor: 'pointer'}}>
-              <Zap size={16} /> Habilidades <span style={{background: '#eff6ff', color: '#3b82f6', fontSize: '10px', padding: '2px 6px', borderRadius: '4px', fontWeight: '600'}}>Beta</span>
-            </div>
-            <div style={{display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px', fontSize: '13px', color: '#4b5563', cursor: 'pointer'}}>
-              <Activity size={16} /> Análises
-            </div>
-            <div style={{display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px', fontSize: '13px', color: '#4b5563', cursor: 'pointer'}}>
-              <Link size={16} /> Conexões
-            </div>
-          </div>
-
-          {/* Superagentes */}
-          <div style={{marginTop: '24px', padding: '0 12px'}}>
-            <div style={{fontSize: '11px', color: '#9ca3af', fontWeight: '500', marginBottom: '12px', textTransform: 'uppercase'}}>Superagentes</div>
-            <div style={{display: 'flex', flexDirection: 'column', gap: '12px'}}>
-               <div style={{display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px', color: '#4b5563', cursor: 'pointer'}}>
-                 <div style={{background: 'linear-gradient(45deg, #ef4444, #3b82f6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent'}}><Sparkles size={16} /></div>
-                 Criar agente
-               </div>
-               <div style={{display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px', color: '#4b5563', cursor: 'pointer'}}>
-                 <Clock size={16} /> Atividade do agente
-               </div>
-               <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', color: '#4b5563', cursor: 'pointer'}}>
-                 <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}><Users size={16} color="#f97316" /> Todos os agentes</div>
-                 <span style={{color: '#9ca3af', fontSize: '12px'}}>{agents.length}</span>
-               </div>
-               <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', color: '#4b5563', cursor: 'pointer'}}>
-                 <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}><User size={16} color="#10b981" /> Meus agentes</div>
-                 <span style={{color: '#9ca3af', fontSize: '12px'}}>{agents.length}</span>
-               </div>
-            </div>
-          </div>
-
-          {/* Superagentes recentes */}
-          <div style={{marginTop: '24px', padding: '0 12px'}}>
-            <div style={{fontSize: '11px', color: '#9ca3af', fontWeight: '500', marginBottom: '12px', textTransform: 'uppercase'}}>Superagentes recentes</div>
-            <div style={{display: 'flex', flexDirection: 'column', gap: '12px'}}>
-               {agents.length === 0 ? <div style={{fontSize: '12px', color: '#9ca3af'}}>Nenhum agente ainda.</div> : agents.slice(0, 5).map(a => (
-                 <div key={a.id} style={{display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px', color: '#4b5563', cursor: 'pointer'}}>
-                   <div style={{width: '20px', height: '20px', borderRadius: '50%', background: 'linear-gradient(135deg, #e0e7ff, #ede9fe)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8b5cf6'}}>
-                     <User size={12} />
-                   </div>
-                   {a.name}
-                 </div>
-               ))}
-            </div>
-          </div>
-          
-        </div>
-
-        {/* Sidebar Footer Stats */}
-        <div style={{padding: '16px 20px', borderTop: '1px solid #e4e6e9', display: 'flex', justifyContent: 'space-between'}}>
-           <div style={{display: 'flex', flexDirection: 'column'}}>
-             <div style={{display: 'flex', alignItems: 'center', gap: '4px', color: '#10b981', fontSize: '12px', fontWeight: '500'}}><div style={{width: '6px', height: '6px', borderRadius: '50%', background: '#10b981'}}></div> {usosDaIA}</div>
-             <div style={{fontSize: '10px', color: '#9ca3af'}}>Usos da IA do Brain</div>
-           </div>
-           <div style={{display: 'flex', flexDirection: 'column'}}>
-             <div style={{display: 'flex', alignItems: 'center', gap: '4px', color: '#9ca3af', fontSize: '12px', fontWeight: '500'}}><div style={{width: '6px', height: '6px', borderRadius: '50%', border: '1px solid #9ca3af'}}></div> {totalTokens}</div>
-             <div style={{fontSize: '10px', color: '#9ca3af'}}>Créditos (Tokens)</div>
-           </div>
-        </div>
-      </aside>
-
-      {/* MAIN AI HUB AREA */}
-      <main style={{flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 1, position: 'relative'}}>
-        
-        {/* Top Right Memória */}
-        <div style={{position: 'absolute', top: '20px', right: '30px', display: 'flex', alignItems: 'center', gap: '8px', color: '#6b7280', fontSize: '13px', cursor: 'pointer'}}>
-          <FileText size={16} /> Memória
-        </div>
-
-        {/* Logo Center */}
-        <div style={{marginTop: '15vh', marginBottom: '40px', display: 'flex', alignItems: 'center', gap: '12px'}}>
-          <div style={{position: 'relative'}}>
-            <Sparkles size={48} color="#ec4899" />
-            <Sparkles size={48} color="#3b82f6" style={{position: 'absolute', top: 2, left: 2, opacity: 0.5}} />
-          </div>
-          <h1 style={{fontSize: '48px', fontWeight: '600', margin: 0, background: 'linear-gradient(45deg, #ef4444, #8b5cf6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', letterSpacing: '-1px'}}>
-            Brain<sup style={{fontSize: '24px'}}>2</sup>
-          </h1>
-        </div>
-
-        {/* Prompt Box */}
-        <div style={{width: '100%', maxWidth: '800px', padding: '0 20px'}}>
-          
-          {/* Tabs sticking out */}
-          <div style={{display: 'flex', gap: '4px', marginLeft: '20px'}}>
-            <div style={{background: '#fff', padding: '10px 20px', borderRadius: '12px 12px 0 0', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: '500', color: '#111827', boxShadow: '0 -2px 10px rgba(0,0,0,0.02)', position: 'relative', zIndex: 2}}>
-              <Sparkles size={14} color="#8b5cf6" /> Faça uma pergunta
-            </div>
-            <div style={{background: 'rgba(255,255,255,0.5)', padding: '10px 20px', borderRadius: '12px 12px 0 0', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#6b7280', cursor: 'pointer', position: 'relative', zIndex: 1}}>
-              <Users size={14} /> Agentes
-            </div>
-          </div>
-
-          {/* The Box itself */}
-          <div style={{
-            background: '#fff', borderRadius: '24px', padding: '2px',
-            backgroundClip: 'padding-box', border: 'solid 2px transparent',
-            backgroundImage: 'linear-gradient(white, white), linear-gradient(135deg, rgba(236,72,153,0.3) 0%, rgba(59,130,246,0.3) 100%)',
-            backgroundOrigin: 'border-box', position: 'relative', zIndex: 2,
-            boxShadow: '0 20px 40px -10px rgba(0,0,0,0.05)'
-          }}>
-            <div style={{padding: '24px', display: 'flex', flexDirection: 'column', gap: '24px'}}>
-              <textarea 
-                placeholder="Transforme ideias em ação. Crie tarefas, documentos ou qualquer outra coisa com um prompt."
-                style={{width: '100%', minHeight: '80px', border: 'none', outline: 'none', resize: 'none', fontSize: '16px', color: '#111827', background: 'transparent'}}
-              />
-              
-              <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-                <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
-                  <button style={{background: '#f4f5f7', border: 'none', width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6b7280', cursor: 'pointer'}}>
-                    <Plus size={16} />
-                  </button>
-                  <button style={{background: 'transparent', border: 'none', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: '#6b7280', cursor: 'pointer', fontWeight: '500'}}>
-                    <Zap size={14} /> Habilidades
-                  </button>
-                </div>
-
-                <div style={{display: 'flex', alignItems: 'center', gap: '16px'}}>
-                  <div style={{display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: '#4b5563', cursor: 'pointer'}}>
-                    <Sparkles size={14} color="#8b5cf6" /> Max <ChevronDown size={12} />
-                  </div>
-                  <button style={{background: '#f4f5f7', border: 'none', width: '36px', height: '36px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6b7280', cursor: 'pointer'}}>
-                    <Mic size={16} />
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Skeleton Loaders (Sugestoes) */}
-          <div style={{display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginTop: '30px'}}>
-            {[1, 2, 3, 4].map(i => (
-              <div key={i} style={{background: '#fff', border: '1px solid #f0f1f3', borderRadius: '12px', padding: '16px', height: '80px', display: 'flex', flexDirection: 'column', gap: '12px'}}>
-                <div style={{background: '#f4f5f7', height: '12px', width: '30%', borderRadius: '6px'}}></div>
-                <div style={{background: '#f9fafb', height: '8px', width: '80%', borderRadius: '4px'}}></div>
-                <div style={{background: '#f9fafb', height: '8px', width: '60%', borderRadius: '4px'}}></div>
-              </div>
-            ))}
-          </div>
-
-        </div>
-
-      </main>
-    </div>
-  );
+    <main className="assistant-main">
+      <header><div><Sparkles size={20} /><span><h1>Assistente do workspace</h1><p>Consulta e cria tarefas usando o Supabase.</p></span></div><span className="free-badge">Sem creditos</span></header>
+      <div className="assistant-conversation">
+        {loading && <div className="assistant-loading"><RefreshCw className="spin" size={20} />Lendo tarefas...</div>}
+        {answers.map(answer => <article className={`assistant-message ${answer.role}`} key={answer.id}>
+          <span className="assistant-avatar">{answer.role === 'assistant' ? <Bot size={16} /> : 'EU'}</span>
+          <div><p>{answer.text}</p>{answer.taskIds?.map(taskId => {
+            const task = tasks.find(item => item.id === taskId);
+            if (!task) return null;
+            return <button className="assistant-task-result" key={task.id} onClick={() => onOpen(task.project_id, task.id)}>{task.status === 'DONE' ? <CheckCircle2 size={15} /> : <Circle size={15} />}<span>{task.title}<small>{projects.find(project => project.id === task.project_id)?.name}</small></span></button>;
+          })}</div>
+        </article>)}
+      </div>
+      <div className="assistant-suggestions">{suggestions.map(suggestion => <button key={suggestion} onClick={() => void run(suggestion)}>{suggestion}</button>)}</div>
+      {error && <p className="error-text" role="alert">{error}</p>}
+      <form className="assistant-compose" onSubmit={event => { event.preventDefault(); void run(); }}>
+        <Search size={18} />
+        <textarea rows={2} aria-label="Mensagem para o assistente" value={prompt} onChange={event => setPrompt(event.target.value)} placeholder="Ex.: mostre as atrasadas ou criar tarefa Preparar relatorio para hoje" />
+        <button className="primary icon-only" aria-label="Enviar" title="Enviar" disabled={!prompt.trim() || busy}><Send size={18} /></button>
+      </form>
+    </main>
+  </section>;
 }

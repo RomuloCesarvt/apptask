@@ -1,94 +1,96 @@
 "use client";
-import { useEffect, useState } from 'react';
-import { Settings, Search } from 'lucide-react';
-import { checked, errorText, displayDate, priorities, type Task, type Project } from '@/lib/taskflow';
-import { supabase } from '@/lib/supabase';
 
-export default function WorkspaceOverview({ projects, userId, onOpen }: { projects: Project[]; userId: string; onOpen: (projectId: string, taskId: string) => void }) {
+import { useEffect, useMemo, useState } from 'react';
+import { CalendarClock, CheckCircle2, Circle, ListFilter, RefreshCw, Search } from 'lucide-react';
+import { displayDate, errorText, loadTasks, priorities, statuses, today, type Project, type Task } from '@/lib/taskflow';
+
+type Filter = 'open' | 'overdue' | 'today' | 'done';
+
+export default function WorkspaceOverview({
+  projects,
+  userId,
+  mine = false,
+  onOpen,
+}: {
+  projects: Project[];
+  userId: string;
+  mine?: boolean;
+  onOpen: (projectId: string, taskId: string) => void;
+}) {
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [filter, setFilter] = useState<Filter>('open');
+  const [query, setQuery] = useState('');
+  const [projectId, setProjectId] = useState('');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [revision, setRevision] = useState(0);
 
   useEffect(() => {
     let active = true;
-    async function load() {
-      try {
-        const result: Task[] = [];
-        if (projects.length) for (let offset = 0; ; offset += 500) {
-          const batch = await checked(supabase.from('tf_tasks').select('*').in('project_id', projects.map(p => p.id)).eq('archived', false).order('created_at').order('id').range(offset, offset + 499));
-          result.push(...batch); if (batch.length < 500) break;
-        }
-        if (active) setTasks(result);
-      } catch (e) { console.error(e); } finally { if (active) setLoading(false); }
-    }
-    void load(); return () => { active = false; };
-  }, [projects]);
+    void Promise.all(projects.map(project => loadTasks(project.id)))
+      .then(rows => { if (active) { setTasks(rows.flat().filter(task => !task.archived && !task.parent_id)); setError(''); } })
+      .catch(caught => { if (active) setError(errorText(caught)); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [projects, revision]);
 
-  return (
-    <div style={{display: 'flex', flexDirection: 'column', height: '100%', background: '#fff'}}>
-      <div className="inbox-tabs">
-        <button className="inbox-tab active">
-          <strong><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg> Todos</strong>
-          <small>{tasks.length} não lido(s)</small>
-        </button>
-        <button className="inbox-tab">
-          <strong><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg> Principal</strong>
-          <small>{Math.max(0, tasks.length - 5)} não lido(s)</small>
-        </button>
-        <button className="inbox-tab">
-          <strong><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg> Outro</strong>
-          <small>5 não lido(s)</small>
-        </button>
-        <button className="inbox-tab" style={{marginLeft: 'auto'}}>
-          <strong><Clock3 size={16} /> Mais tarde</strong>
-        </button>
-        <button className="inbox-tab">
-          <strong><CheckCheck size={16} /> Removidas</strong>
-        </button>
-      </div>
-
-      <div style={{padding: '12px 20px', display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #e4e6e9'}}>
-        <button style={{background: 'transparent', border: '1px solid #e4e6e9', padding: '6px 12px', borderRadius: '4px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px'}}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg> Filtro</button>
-        <div style={{display: 'flex', gap: '10px'}}>
-          <button style={{background: 'transparent', border: '1px solid #e4e6e9', padding: '6px 8px', borderRadius: '4px'}}><Settings size={14} /></button>
-          <button style={{background: 'transparent', border: 'none', color: '#6b7280', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px'}}><CheckCheck size={14} /> Apagar tudo</button>
-        </div>
-      </div>
-
-      <div style={{padding: '20px 20px 8px', fontSize: '14px', fontWeight: '600', color: '#4b5563'}}>
-        Hoje
-      </div>
-
-      <div style={{flex: 1, overflow: 'auto'}}>
-        {!loading && tasks.slice(0, 8).map((task, i) => {
-          const isPurple = i % 3 === 0;
-          const isYellow = i % 3 === 1;
-          const isRed = i % 4 === 0;
-          
-          return (
-            <div key={task.id} className="inbox-row" onClick={() => onOpen(task.project_id, task.id)}>
-              <div className={`inbox-circle ${isPurple ? 'purple' : isYellow ? 'yellow' : isRed ? 'red' : ''}`}></div>
-              <div className="inbox-title">{task.title}</div>
-              
-              <div className="inbox-avatar" style={{background: isPurple ? '#3b82f6' : isYellow ? '#f43f5e' : '#10b981'}}>
-                {task.title.substring(0, 2).toUpperCase()}
-              </div>
-              
-              <div className="inbox-action">
-                <strong>@Michelle de Sales Dornelas</strong> {isPurple ? 'alterou o status: 🟡 Pendente → 🔵 Em Andamento' : 'comentários feitos: "Qual a previsão de entrar na LP?"'}
-              </div>
-              
-              <div className="inbox-meta">
-                {i % 2 === 0 && <div className="comment-bubble">{i + 1}</div>}
-                <span>14:{30 + i}</span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
+  const date = today();
+  const scoped = useMemo(
+    () => tasks.filter(task => !mine || task.assignee_id === userId),
+    [mine, tasks, userId],
   );
-}
+  const counts = {
+    open: scoped.filter(task => task.status !== 'DONE').length,
+    overdue: scoped.filter(task => task.status !== 'DONE' && task.due_date && task.due_date < date).length,
+    today: scoped.filter(task => task.status !== 'DONE' && task.due_date === date).length,
+    done: scoped.filter(task => task.status === 'DONE').length,
+  };
+  const shown = useMemo(() => scoped
+    .filter(task => !projectId || task.project_id === projectId)
+    .filter(task => `${task.title} ${task.description}`.toLowerCase().includes(query.trim().toLowerCase()))
+    .filter(task => {
+      if (filter === 'done') return task.status === 'DONE';
+      if (filter === 'overdue') return task.status !== 'DONE' && !!task.due_date && task.due_date < date;
+      if (filter === 'today') return task.status !== 'DONE' && task.due_date === date;
+      return task.status !== 'DONE';
+    })
+    .sort((a, b) => (a.due_date || '9999-12-31').localeCompare(b.due_date || '9999-12-31') || b.updated_at.localeCompare(a.updated_at)),
+  [date, filter, projectId, query, scoped]);
 
-// Simple mock for missing icons in this file
-function Clock3({size}: {size:number}) { return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg> }
-function CheckCheck({size}: {size:number}) { return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="20 6 9 17 4 12"></polyline></svg> }
+  return <section className="workspace-overview">
+    <header className="overview-header">
+      <div><h1>{mine ? 'Minhas tarefas' : 'Visao geral'}</h1><p>{mine ? 'Trabalho atribuido a voce em todas as listas.' : 'Prazos e prioridades de todo o workspace.'}</p></div>
+      <button className="icon-button" aria-label="Atualizar tarefas" title="Atualizar" onClick={() => setRevision(value => value + 1)}><RefreshCw size={17} /></button>
+    </header>
+
+    <div className="overview-tabs" role="tablist" aria-label="Filtrar tarefas">
+      {([
+        ['open', 'Em aberto', counts.open],
+        ['overdue', 'Atrasadas', counts.overdue],
+        ['today', 'Hoje', counts.today],
+        ['done', 'Concluidas', counts.done],
+      ] as const).map(([value, label, count]) => <button key={value} role="tab" aria-selected={filter === value} className={filter === value ? 'active' : ''} onClick={() => setFilter(value)}><span>{label}</span><strong>{count}</strong></button>)}
+    </div>
+
+    <div className="overview-toolbar">
+      <label className="search-box"><Search size={16} /><input aria-label="Buscar na visao geral" value={query} onChange={event => setQuery(event.target.value)} placeholder="Buscar tarefa" /></label>
+      <label className="compact-select"><ListFilter size={15} /><select aria-label="Filtrar por lista" value={projectId} onChange={event => setProjectId(event.target.value)}><option value="">Todas as listas</option>{projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
+    </div>
+
+    {error && <div className="error-banner" role="alert">{error}<button className="text-button" onClick={() => setRevision(value => value + 1)}>Tentar novamente</button></div>}
+    <div className="overview-list">
+      {loading && <div className="empty-state"><RefreshCw className="spin" size={24} /><p>Carregando tarefas...</p></div>}
+      {!loading && shown.map(task => {
+        const project = projects.find(item => item.id === task.project_id);
+        const overdue = task.status !== 'DONE' && !!task.due_date && task.due_date < date;
+        return <button className="overview-task-row" key={task.id} onClick={() => onOpen(task.project_id, task.id)}>
+          {task.status === 'DONE' ? <CheckCircle2 className="done-icon" size={18} /> : <Circle size={18} />}
+          <span className="overview-task-main"><strong>{task.title}</strong><small>{project?.name || 'Lista'} · {statuses[task.status]}</small></span>
+          <span className={`priority-label priority-${task.priority.toLowerCase()}`}>{priorities[task.priority]}</span>
+          <span className={overdue ? 'due-date overdue' : 'due-date'}><CalendarClock size={14} />{displayDate(task.due_date)}</span>
+        </button>;
+      })}
+      {!loading && !shown.length && <div className="empty-state"><CheckCircle2 size={34} /><h2>Nada por aqui</h2><p>Nao ha tarefas para este filtro.</p></div>}
+    </div>
+  </section>;
+}

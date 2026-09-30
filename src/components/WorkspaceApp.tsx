@@ -24,8 +24,10 @@ export default function WorkspaceApp() {
   const [modal, setModal] = useState<'workspace' | 'project' | 'space' | 'team' | 'search' | null>(null);
   const [section, setSection] = useState<'project' | 'home' | 'mine' | 'chat' | 'planner' | 'ai'>('project');
   const [taskId, setTaskId] = useState<string>();
+  const [newTaskDueDate, setNewTaskDueDate] = useState<string>();
   const [mobileNav, setMobileNav] = useState(false);
   const [theme, setTheme] = useState('theme-purple');
+  const [attentionCount, setAttentionCount] = useState(0);
   const [revision, setRevision] = useState(0);
   const workspace = workspaces.find(w => w.id === workspaceId);
   const project = projects.find(p => p.id === projectId);
@@ -46,6 +48,23 @@ export default function WorkspaceApp() {
   }, [router]);
   useEffect(() => { startTransition(() => { void refresh(); }); }, [refresh]);
   useEffect(() => {
+    const saved = localStorage.getItem('tf-theme');
+    const timer = window.setTimeout(() => {
+      if (saved && ['theme-purple', 'theme-blue', 'theme-emerald', 'theme-rose', 'theme-light'].includes(saved)) setTheme(saved);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+  useEffect(() => {
+    const shortcut = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k' && workspaceId) {
+        event.preventDefault();
+        setModal('search');
+      }
+    };
+    window.addEventListener('keydown', shortcut);
+    return () => window.removeEventListener('keydown', shortcut);
+  }, [workspaceId]);
+  useEffect(() => {
     if (!workspaceId) return;
     let active = true;
     async function load() {
@@ -64,42 +83,53 @@ export default function WorkspaceApp() {
     void load();
     return () => { active = false; };
   }, [workspaceId, revision]);
+  useEffect(() => {
+    let active = true;
+    void Promise.all(projects.map(item => loadTasks(item.id))).then(rows => {
+      if (!active) return;
+      const date = new Date().toLocaleDateString('en-CA');
+      setAttentionCount(rows.flat().filter(task => !task.archived && !task.parent_id && task.status !== 'DONE' && (!!task.due_date && task.due_date <= date)).length);
+    }).catch(() => { if (active) setAttentionCount(0); });
+    return () => { active = false; };
+  }, [projects]);
   async function logout() {
     const { error } = await supabase.auth.signOut();
     if (error) setError(errorText(error)); else router.replace('/');
   }
   function selectProject(id: string, targetTaskId?: string) {
-    setProjectId(id); setTaskId(targetTaskId); setSection('project'); setMobileNav(false);
+    setProjectId(id); setTaskId(targetTaskId); setNewTaskDueDate(undefined); setSection('project'); setMobileNav(false);
   }
-  function switchSection(next: typeof section) { setSection(next); setTaskId(undefined); setMobileNav(false); }
+  function createTask(id: string, dueDate: string) { setProjectId(id); setTaskId(undefined); setNewTaskDueDate(dueDate); setSection('project'); setMobileNav(false); }
+  function switchSection(next: typeof section) { setSection(next); setTaskId(undefined); setNewTaskDueDate(undefined); setMobileNav(false); }
+  function chooseTheme(next: string) { setTheme(next); localStorage.setItem('tf-theme', next); }
   const spaces = [...new Set(projects.map(p => p.space_name || 'Equipe'))];
   const listButton = (p: Project) => <button key={p.id} className={p.id === projectId && (section === 'project' || section === 'chat') ? 'active' : ''} onClick={() => selectProject(p.id)}><List size={15} /><span>{p.name}</span></button>;
   return <div className={`tf-app ${theme}`}>
-    <div className="global-rail"><span className="rail-logo"><CheckCheck size={25} /></span><button className={section === 'home' ? 'active' : ''} style={{position: 'relative'}} title="Inicio" aria-label="Inicio" onClick={() => switchSection('home')}><Home size={22} /><span className="badge-pink">26</span><small>Inicio</small></button><button className={section === 'planner' ? 'active' : ''} title="Planejador" aria-label="Planejador" onClick={() => switchSection('planner')}><CalendarDays size={20} /><small>Planejador</small></button><button className={section === 'ai' ? 'active' : ''} title="IA" aria-label="IA" onClick={() => switchSection('ai')}><div style={{background: 'linear-gradient(45deg, #ec4899, #3b82f6)', borderRadius: '50%', padding: '2px'}}><Sparkles size={16} color="#fff" /></div><small>IA</small></button><button className={section === 'project' ? 'active' : ''} title="Espacos" aria-label="Espacos" onClick={() => switchSection('project')}><Layers size={20} /><small>Equipes</small></button><button className={section === 'chat' ? 'active' : ''} title="Chat" aria-label="Chat da equipe" onClick={() => switchSection('chat')}><MessageSquare size={20} /><small>Mais</small></button></div>
+    <div className="global-rail"><span className="rail-logo"><CheckCheck size={25} /></span><button className={section === 'home' ? 'active' : ''} style={{position: 'relative'}} title="Inicio" aria-label="Inicio" onClick={() => switchSection('home')}><Home size={22} />{attentionCount > 0 && <span className="badge-pink">{attentionCount > 99 ? '99+' : attentionCount}</span>}<small>Inicio</small></button><button className={section === 'planner' ? 'active' : ''} title="Planejador" aria-label="Planejador" onClick={() => switchSection('planner')}><CalendarDays size={20} /><small>Planejador</small></button><button className={section === 'ai' ? 'active' : ''} title="Assistente" aria-label="Assistente" onClick={() => switchSection('ai')}><Sparkles size={19} /><small>Assistente</small></button><button className={section === 'project' ? 'active' : ''} title="Espacos" aria-label="Espacos" onClick={() => switchSection('project')}><Layers size={20} /><small>Equipes</small></button><button className={section === 'chat' ? 'active' : ''} title="Chat" aria-label="Chat da equipe" onClick={() => switchSection('chat')}><MessageSquare size={20} /><small>Chat</small></button></div>
     <button className="mobile-menu icon-button" title="Abrir menu" aria-label="Abrir menu" onClick={() => setMobileNav(true)}><Menu size={22} /></button>
     {mobileNav && <button className="nav-backdrop" aria-label="Fechar menu" onClick={() => setMobileNav(false)} />}
     <aside className={`tf-sidebar ${mobileNav ? 'is-open' : ''}`}>
       <div className="brand"><CheckCheck size={26} /><strong>TaskFlow<span>Equipe</span></strong><button className="icon-button mobile-close" aria-label="Fechar menu" onClick={() => setMobileNav(false)}><X size={20} /></button></div>
       <label className="workspace-picker"><span>WORKSPACE</span><select aria-label="Workspace" value={workspaceId} onChange={e => { setProjects([]); setMembers([]); setProjectId(''); setTaskId(undefined); setWorkspaceId(e.target.value); localStorage.setItem(`tf-workspace:${user.id}`, e.target.value); }}>{!workspaces.length && <option value="">Sua equipe</option>}{workspaces.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select></label>
       <button className="nav-action" onClick={() => setModal('workspace')}><Plus size={16} /> Novo workspace</button>
-      <div className="main-links"><button className={`nav-action ${section === 'home' ? 'active' : ''}`} onClick={() => switchSection('home')}><Home size={17} />Caixa de entrada</button><button className={`nav-action ${section === 'mine' ? 'active' : ''}`} onClick={() => switchSection('mine')}><ListTodo size={17} />Minhas tarefas</button><button className={`nav-action ${section === 'chat' ? 'active' : ''}`} onClick={() => switchSection('chat')}><MessageSquare size={17} />Chat da equipe</button></div>
+      <div className="main-links"><button className={`nav-action ${section === 'home' ? 'active' : ''}`} onClick={() => switchSection('home')}><Home size={17} />Visao geral</button><button className={`nav-action ${section === 'mine' ? 'active' : ''}`} onClick={() => switchSection('mine')}><ListTodo size={17} />Minhas tarefas</button><button className={`nav-action ${section === 'chat' ? 'active' : ''}`} onClick={() => switchSection('chat')}><MessageSquare size={17} />Chat da equipe</button></div>
       
       <div className="sidebar-section" style={{marginTop: '10px'}}><span>TEMA</span></div>
       <div style={{display: 'flex', gap: '8px', padding: '0 14px 10px', flexWrap: 'wrap'}}>
-        <button onClick={() => setTheme('theme-purple')} style={{width: '20px', height: '20px', borderRadius: '50%', background: '#7b68ee', border: 'none', cursor: 'pointer'}} title="Roxo"></button>
-        <button onClick={() => setTheme('theme-blue')} style={{width: '20px', height: '20px', borderRadius: '50%', background: '#007bff', border: 'none', cursor: 'pointer'}} title="Azul"></button>
-        <button onClick={() => setTheme('theme-emerald')} style={{width: '20px', height: '20px', borderRadius: '50%', background: '#10b981', border: 'none', cursor: 'pointer'}} title="Esmeralda"></button>
-        <button onClick={() => setTheme('theme-rose')} style={{width: '20px', height: '20px', borderRadius: '50%', background: '#f43f5e', border: 'none', cursor: 'pointer'}} title="Rosa"></button>
-        <button onClick={() => setTheme('theme-light')} style={{width: '20px', height: '20px', borderRadius: '50%', background: '#e5e7eb', border: '2px solid #ccc', cursor: 'pointer'}} title="Claro"></button>
+        <button aria-label="Tema roxo" aria-pressed={theme === 'theme-purple'} onClick={() => chooseTheme('theme-purple')} style={{width: '20px', height: '20px', borderRadius: '50%', background: '#7b68ee', border: 'none', cursor: 'pointer'}} title="Roxo"></button>
+        <button aria-label="Tema azul" aria-pressed={theme === 'theme-blue'} onClick={() => chooseTheme('theme-blue')} style={{width: '20px', height: '20px', borderRadius: '50%', background: '#007bff', border: 'none', cursor: 'pointer'}} title="Azul"></button>
+        <button aria-label="Tema esmeralda" aria-pressed={theme === 'theme-emerald'} onClick={() => chooseTheme('theme-emerald')} style={{width: '20px', height: '20px', borderRadius: '50%', background: '#10b981', border: 'none', cursor: 'pointer'}} title="Esmeralda"></button>
+        <button aria-label="Tema rosa" aria-pressed={theme === 'theme-rose'} onClick={() => chooseTheme('theme-rose')} style={{width: '20px', height: '20px', borderRadius: '50%', background: '#f43f5e', border: 'none', cursor: 'pointer'}} title="Rosa"></button>
+        <button aria-label="Tema claro" aria-pressed={theme === 'theme-light'} onClick={() => chooseTheme('theme-light')} style={{width: '20px', height: '20px', borderRadius: '50%', background: '#e5e7eb', border: '2px solid #ccc', cursor: 'pointer'}} title="Claro"></button>
       </div>
       <div className="sidebar-section"><span>ESPACOS</span><button className="icon-button" aria-label="Nova lista" title="Nova lista" disabled={!workspaceId} onClick={() => setModal('project')}><Plus size={18} /></button></div>
       <nav aria-label="Espacos e listas">{spaces.map((space, index) => <details className="space-group" open key={space}><summary><span className={`space-icon color-${index % 4}`}>{space.slice(0, 1).toUpperCase()}</span><span>{space}</span></summary>{projects.filter(p => (p.space_name || 'Equipe') === space && !p.folder_name).map(listButton)}{[...new Set(projects.filter(p => (p.space_name || 'Equipe') === space && p.folder_name).map(p => p.folder_name))].map(folder => <details open className="folder-group" key={folder}><summary><Folder size={15} /><span>{folder}</span></summary>{projects.filter(p => (p.space_name || 'Equipe') === space && p.folder_name === folder).map(listButton)}</details>)}</details>)}<button className="nav-action" disabled={!workspaceId} onClick={() => setModal('space')}><Plus size={16} />Novo espaco</button></nav>
       <div className="sidebar-bottom"><button className="nav-action" disabled={!workspace} onClick={() => setModal('team')}><Users size={17} /> Equipe <span className="count">{members.length}</span></button><button className="nav-action" onClick={refresh}><RefreshCw size={16} /> Atualizar equipes</button><div className="account"><span className="avatar">{initials(user.name || 'Conta')}</span><span>{user.name}</span><button className="icon-button" title="Sair" aria-label="Sair" onClick={logout}><LogOut size={17} /></button></div></div>
     </aside>
     <main className="tf-main">
-      <div className="global-topbar"><span style={{fontWeight: "600", color: "#111827"}}>{workspace?.name || 'Moura Leite'}</span><button className="global-search" onClick={() => setModal('search')} disabled={!workspace}><Search size={15} />Pesquisar Ctrl K</button><div className="topbar-right-icons"><CheckCheck size={18} /><CalendarDays size={18} /><MessageSquare size={18} /><span className="avatar small">{initials(user.name || 'Conta')}</span></div></div>
+      <div className="global-topbar"><span style={{fontWeight: "600", color: "#111827"}}>{workspace?.name || 'TaskFlow'}</span><button className="global-search" onClick={() => setModal('search')} disabled={!workspace}><Search size={15} />Pesquisar Ctrl K</button><div className="topbar-right-icons"><button className="icon-button" title="Minhas tarefas" aria-label="Minhas tarefas" onClick={() => switchSection('mine')}><CheckCheck size={18} /></button><button className="icon-button" title="Planejador" aria-label="Planejador" onClick={() => switchSection('planner')}><CalendarDays size={18} /></button><button className="icon-button" title="Chat da equipe" aria-label="Chat da equipe" disabled={!projectId} onClick={() => switchSection('chat')}><MessageSquare size={18} /></button><span className="avatar small">{initials(user.name || 'Conta')}</span></div></div>
       {error && <div className="error-banner" role="alert">{error}<button className="text-button" onClick={refresh}>Tentar novamente</button></div>}
-      {loading || workspaceLoading ? <div className="empty-state"><RefreshCw className="spin" size={28} /><h2>Carregando sua equipe...</h2></div> : workspace && section === 'ai' ? <WorkspaceAI workspaceId={workspace.id} userId={user.id} /> : workspace && section === 'planner' ? <WorkspacePlanner projects={projects} onOpen={selectProject} /> : workspace && (section === 'home' || section === 'mine') ? <WorkspaceOverview key={`${workspaceId}:${section}`} projects={projects} userId={user.id} onOpen={selectProject} /> : project && workspace ? <ProjectView key={`${project.id}:${section}:${taskId || ''}`} project={project} workspace={workspace} members={members} userId={user.id} initialView={section === 'chat' ? 'chat' : 'list'} initialTaskId={taskId} /> : <div className="empty-state"><CheckCheck size={48} /><h1>{workspaces.length ? 'Crie sua primeira lista' : 'Seu trabalho, em equipe'}</h1><button className="primary" disabled={!!error} onClick={() => setModal(workspaceId ? 'project' : 'workspace')}><Plus size={18} />{workspaceId ? 'Criar lista' : 'Criar workspace'}</button></div>}
+      {loading || workspaceLoading ? <div className="empty-state"><RefreshCw className="spin" size={28} /><h2>Carregando sua equipe...</h2></div> : workspace && section === 'ai' ? <WorkspaceAI workspaceId={workspace.id} userId={user.id} projects={projects} onOpen={selectProject} /> : workspace && section === 'planner' ? <WorkspacePlanner projects={projects} userId={user.id} onOpen={selectProject} onCreate={createTask} /> : workspace && (section === 'home' || section === 'mine') ? <WorkspaceOverview key={`${workspaceId}:${section}`} projects={projects} userId={user.id} mine={section === 'mine'} onOpen={selectProject} /> : project && workspace ? <ProjectView key={`${project.id}:${section}:${taskId || ''}:${newTaskDueDate || ''}`} project={project} workspace={workspace} members={members} userId={user.id} initialView={section === 'chat' ? 'chat' : 'list'} initialTaskId={taskId} initialDueDate={newTaskDueDate} /> : <div className="empty-state"><CheckCheck size={48} /><h1>{workspaces.length ? 'Crie sua primeira lista' : 'Seu trabalho, em equipe'}</h1><button className="primary" disabled={!!error} onClick={() => setModal(workspaceId ? 'project' : 'workspace')}><Plus size={18} />{workspaceId ? 'Criar lista' : 'Criar workspace'}</button></div>}
     </main>
     {(modal === 'workspace' || modal === 'project' || modal === 'space') && <NameDialog kind={modal} spaces={spaces} onClose={() => setModal(null)} onSave={async (name, space, folder) => {
       if (modal === 'workspace') { const id = await checked(supabase.rpc('tf_create_workspace', { workspace_name: name })); await refresh(); setWorkspaceId(id); localStorage.setItem(`tf-workspace:${user.id}`, id); setSection('project'); }
