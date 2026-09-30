@@ -1,12 +1,40 @@
 "use client";
 import { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Settings, Calendar as CalendarIcon, RefreshCw, Search, Plus, CheckCircle2, Circle, Sparkles, UserPlus } from 'lucide-react';
-import type { Task } from '@/lib/taskflow';
+import { addDays, format, startOfWeek, isSameDay } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
+import { supabase } from '@/lib/supabase';
+import { checked, type Task, type Project } from '@/lib/taskflow';
 
-export default function WorkspacePlanner({ tasks, onOpen }: { tasks: Task[]; onOpen: (task: Task) => void }) {
-  // Using fixed static dates for the mockup to match the screenshot exactly (September 2026)
-  const currentHour = 17;
-  const currentMinute = 28;
+export default function WorkspacePlanner({ projects, onOpen }: { projects: Project[]; onOpen: (projectId: string, taskId: string) => void }) {
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [currentDate, setCurrentDate] = useState(new Date());
+
+  useEffect(() => {
+    let active = true;
+    async function load() {
+      try {
+        const result: Task[] = [];
+        if (projects.length) for (let offset = 0; ; offset += 500) {
+          const batch = await checked(supabase.from('tf_tasks').select('*').in('project_id', projects.map(p => p.id)).eq('archived', false).order('created_at').order('id').range(offset, offset + 499));
+          result.push(...batch); if (batch.length < 500) break;
+        }
+        if (active) setTasks(result);
+      } catch (e) { console.error(e); } finally { if (active) setLoading(false); }
+    }
+    void load(); return () => { active = false; };
+  }, [projects]);
+
+  const now = new Date();
+  const currentHour = now.getHours();
+  const currentMinute = now.getMinutes();
+  
+  const weekStart = startOfWeek(currentDate, { weekStartsOn: 0 }); // Sunday
+  const days = Array.from({length: 7}).map((_, i) => addDays(weekStart, i));
+
+  const priorities = tasks.filter(t => t.priority === 'URGENT' || t.priority === 'HIGH').slice(0, 5);
+  const pending = tasks.filter(t => t.status === 'TODO' || t.status === 'IN_PROGRESS').slice(0, 10);
 
   return (
     <div style={{display: 'flex', height: '100%', width: '100%', background: '#fff'}}>
@@ -27,10 +55,14 @@ export default function WorkspacePlanner({ tasks, onOpen }: { tasks: Task[]; onO
           {/* Prioridades */}
           <div style={{marginTop: '20px'}}>
             <div style={{fontSize: '12px', color: '#6b7280', marginBottom: '12px'}}>Prioridades</div>
-            <div style={{display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px', color: '#4b5563', marginBottom: '12px'}}>
-              <span style={{color: '#9ca3af', width: '12px'}}>1</span>
-              <CheckCircle2 size={16} color="#3b82f6" fill="#eff6ff" />
-              <span style={{textDecoration: 'line-through', color: '#9ca3af'}}>Texto Legal site</span>
+            <div style={{display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '13px', color: '#4b5563', marginBottom: '12px'}}>
+              {priorities.length === 0 ? <span style={{color: '#9ca3af'}}>Nenhuma prioridade.</span> : priorities.map((t, i) => (
+                <div key={t.id} style={{display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer'}} onClick={() => onOpen(t.project_id, t.id)}>
+                  <span style={{color: '#9ca3af', width: '12px'}}>{i+1}</span>
+                  <CheckCircle2 size={16} color={t.status === 'DONE' ? '#10b981' : '#3b82f6'} fill={t.status === 'DONE' ? '#d1fae5' : '#eff6ff'} />
+                  <span style={{textDecoration: t.status === 'DONE' ? 'line-through' : 'none', color: t.status === 'DONE' ? '#9ca3af' : '#4b5563', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>{t.title}</span>
+                </div>
+              ))}
             </div>
             <div style={{display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px', color: '#9ca3af', cursor: 'pointer'}}>
               <Plus size={16} /> Adicionar prioridade
@@ -59,15 +91,12 @@ export default function WorkspacePlanner({ tasks, onOpen }: { tasks: Task[]; onO
           <div style={{marginTop: '24px'}}>
             <div style={{fontSize: '12px', color: '#6b7280', marginBottom: '12px'}}>Lista de pendências</div>
             <div style={{display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '13px', color: '#4b5563'}}>
-              <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
-                <Circle size={14} color="#d1d5db" /> Linktree
-              </div>
-              <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
-                <CheckCircle2 size={14} color="#3b82f6" fill="#3b82f6" /> Plano de mídia online
-              </div>
-              <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
-                <CheckCircle2 size={14} color="#3b82f6" fill="#3b82f6" /> Newsletter | Edição de Fevere...
-              </div>
+              {pending.length === 0 ? <span style={{color: '#9ca3af'}}>Nenhuma pendência.</span> : pending.map(t => (
+                 <div key={t.id} style={{display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer'}} onClick={() => onOpen(t.project_id, t.id)}>
+                   {t.status === 'TODO' ? <Circle size={14} color="#d1d5db" /> : <CheckCircle2 size={14} color="#3b82f6" fill="#3b82f6" />}
+                   <span style={{whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>{t.title}</span>
+                 </div>
+              ))}
             </div>
           </div>
         </div>
@@ -78,10 +107,11 @@ export default function WorkspacePlanner({ tasks, onOpen }: { tasks: Task[]; onO
         {/* Top Header */}
         <header style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', borderBottom: '1px solid #e4e6e9'}}>
           <div style={{display: 'flex', alignItems: 'center', gap: '16px'}}>
-            <div style={{display: 'flex', gap: '12px', color: '#6b7280', cursor: 'pointer'}}>
-              <ChevronLeft size={16} /> <ChevronRight size={16} />
+            <div style={{display: 'flex', gap: '12px', color: '#6b7280'}}>
+              <ChevronLeft size={16} style={{cursor: 'pointer'}} onClick={() => setCurrentDate(addDays(currentDate, -7))} /> 
+              <ChevronRight size={16} style={{cursor: 'pointer'}} onClick={() => setCurrentDate(addDays(currentDate, 7))} />
             </div>
-            <h1 style={{fontSize: '18px', fontWeight: '400', margin: 0, color: '#111827'}}>September 2026</h1>
+            <h1 style={{fontSize: '18px', fontWeight: '400', margin: 0, color: '#111827'}}>{format(currentDate, 'MMMM yyyy', {locale: ptBR})}</h1>
           </div>
           <div style={{display: 'flex', alignItems: 'center', gap: '16px', color: '#6b7280'}}>
             <div style={{border: '1px solid #e4e6e9', padding: '4px 12px', borderRadius: '4px', fontSize: '13px', color: '#4b5563', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer'}}>
@@ -103,26 +133,31 @@ export default function WorkspacePlanner({ tasks, onOpen }: { tasks: Task[]; onO
               <div>O dia todo</div>
             </div>
             {[
-              {day: 'Sun', date: '27', count: '1 evento', isToday: false},
-              {day: 'Mon', date: '28', count: '1 evento', isToday: false},
-              {day: 'Tue', date: '29', count: '3 eventos', isToday: true},
-              {day: 'Wed', date: '30', count: '5 eventos', isToday: false},
-              {day: 'Thu', date: '1', count: '0', hasEvent: true, isToday: false},
-              {day: 'Fri', date: '2', count: '0', isToday: false},
-              {day: 'Sat', date: '3', count: '0', isToday: false}
+              ...days.map(day => {
+                const dayTasks = tasks.filter(t => t.due_date === format(day, 'yyyy-MM-dd'));
+                return {
+                  day: format(day, 'EEE', {locale: ptBR}),
+                  date: format(day, 'd'),
+                  count: `${dayTasks.length} eventos`,
+                  isToday: isSameDay(day, now),
+                  tasks: dayTasks
+                };
+              })
             ].map((d, i) => (
               <div key={i} style={{padding: '12px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', borderRight: i < 6 ? '1px solid #e4e6e9' : 'none'}}>
                 <div style={{fontSize: '13px', color: d.isToday ? '#111827' : '#6b7280', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: d.isToday ? '600' : '400'}}>
                   {d.day} 
                   {d.isToday ? <span style={{background: '#ef4444', color: '#fff', width: '24px', height: '24px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold'}}>{d.date}</span> : d.date}
                 </div>
-                {d.hasEvent && d.count === '0' ? (
-                   <div style={{marginTop: '8px', fontSize: '11px', background: '#fff', border: '1px solid #e4e6e9', borderRadius: '12px', padding: '2px 8px', display: 'flex', alignItems: 'center', gap: '4px', color: '#4b5563', boxShadow: '0 1px 2px rgba(0,0,0,0.05)'}}>
-                     <CheckCircle2 size={10} color="#3b82f6" fill="#3b82f6" /> Leads x Vendas
-                   </div>
-                ) : (
-                  <div style={{fontSize: '11px', color: '#9ca3af', marginTop: '8px'}}>{d.count !== '0' ? d.count : ''}</div>
-                )}
+                
+                <div style={{marginTop: '8px', width: '100%', padding: '0 4px', display: 'flex', flexDirection: 'column', gap: '4px'}}>
+                  {d.tasks.slice(0, 3).map(task => (
+                    <div key={task.id} onClick={() => onOpen(task.project_id, task.id)} style={{fontSize: '10px', background: '#fff', border: '1px solid #e4e6e9', borderRadius: '4px', padding: '2px 4px', display: 'flex', alignItems: 'center', gap: '4px', color: '#4b5563', boxShadow: '0 1px 2px rgba(0,0,0,0.05)', cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>
+                      <CheckCircle2 size={10} color={task.status === 'DONE' ? '#10b981' : '#3b82f6'} fill={task.status === 'DONE' ? '#d1fae5' : '#eff6ff'} /> {task.title}
+                    </div>
+                  ))}
+                  {d.tasks.length > 3 && <div style={{fontSize: '10px', color: '#9ca3af', textAlign: 'center'}}>+{d.tasks.length - 3} eventos</div>}
+                </div>
               </div>
             ))}
           </div>
@@ -145,30 +180,13 @@ export default function WorkspacePlanner({ tasks, onOpen }: { tasks: Task[]; onO
               ))}
             </div>
 
-            {/* Events Layer */}
-            <div style={{position: 'absolute', top: 0, left: '60px', right: 0, bottom: 0, zIndex: 1, display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)'}}>
-              {/* Monday Event */}
-              <div style={{gridColumn: 2, position: 'relative'}}>
-                <div style={{position: 'absolute', top: '0px', left: '4px', right: '4px', height: '160px', background: '#93c5fd', borderRadius: '4px', padding: '8px', color: '#fff', fontSize: '11px', cursor: 'pointer'}}>
-                  <strong style={{display: 'block', fontSize: '12px', marginBottom: '4px'}}>Alinhamentos Taguaí, Itatinga e Avaré</strong>
-                  14:00 - 16:00
-                </div>
-              </div>
-              
-              {/* Wednesday Event */}
-              <div style={{gridColumn: 4, position: 'relative'}}>
-                <div style={{position: 'absolute', top: '120px', left: '4px', right: '4px', height: '80px', background: '#007bff', borderRadius: '4px', padding: '8px', color: '#fff', fontSize: '11px', cursor: 'pointer'}}>
-                  <strong style={{display: 'block', fontSize: '12px', marginBottom: '2px'}}>Follow UP - FMD Ita</strong>
-                  15:30 - 16:30
-                </div>
-              </div>
-
-              {/* Thursday Event */}
-              <div style={{gridColumn: 5, position: 'relative'}}>
-                <div style={{position: 'absolute', top: '40px', left: '4px', right: '4px', height: '80px', background: '#007bff', borderRadius: '4px', padding: '8px', color: '#fff', fontSize: '11px', cursor: 'pointer'}}>
-                  <strong style={{display: 'block', fontSize: '12px', marginBottom: '2px'}}>Reunião | SDR ML e</strong>
-                  14:30 - 15:30
-                </div>
+            {/* Events Layer (Mockup Only since we don't have start/end times in DB yet) */}
+            <div style={{position: 'absolute', top: 0, left: '60px', right: 0, bottom: 0, zIndex: 1, display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', pointerEvents: 'none', opacity: 0.2}}>
+              {/* This area is grayed out until database schema supports precise hours */}
+              <div style={{gridColumn: '1 / span 7', display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%'}}>
+                 <span style={{background: 'rgba(255,255,255,0.8)', padding: '10px 20px', borderRadius: '8px', color: '#9ca3af', fontSize: '13px'}}>
+                   Agendamento por horas será suportado na Fase D
+                 </span>
               </div>
             </div>
 
