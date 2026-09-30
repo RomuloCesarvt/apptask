@@ -2,7 +2,7 @@
 
 import React, { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { getAuthRedirectUrl, supabase } from '@/lib/supabase';
+import { getAuthRedirectUrl, getOAuthProviders, supabase } from '@/lib/supabase';
 
 function HomeContent() {
   const router = useRouter();
@@ -12,6 +12,7 @@ function HomeContent() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(searchParams.get('auth_error') || '');
   const [message, setMessage] = useState('');
+  const [oauthProviders, setOAuthProviders] = useState({ google: false, azure: false });
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -20,6 +21,12 @@ function HomeContent() {
       }
     });
   }, [router]);
+
+  useEffect(() => {
+    let active = true;
+    void getOAuthProviders().then(providers => { if (active) setOAuthProviders(providers); });
+    return () => { active = false; };
+  }, []);
 
   const validateCredentials = () => {
     if (!email.trim() || !password.trim()) {
@@ -168,13 +175,13 @@ function HomeContent() {
             </div>
           </form>
 
-          <div className="mt-6 flex items-center justify-between animate-fade-in opacity-0 delay-200">
+          {(oauthProviders.google || oauthProviders.azure) && <div className="mt-6 flex items-center justify-between animate-fade-in opacity-0 delay-200">
             <span className="w-1/5 border-b border-white/10"></span>
             <span className="text-xs text-center text-gray-500 uppercase">ou continue com</span>
             <span className="w-1/5 border-b border-white/10"></span>
-          </div>
+          </div>}
 
-          <button
+          {oauthProviders.google && <button
             type="button"
             onClick={() => handleProviderLogin('google')}
             disabled={loading}
@@ -187,9 +194,9 @@ function HomeContent() {
               <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
             </svg>
             Google
-          </button>
+          </button>}
 
-          <button
+          {oauthProviders.azure && <button
             type="button"
             onClick={() => handleProviderLogin('azure')}
             disabled={loading}
@@ -202,7 +209,7 @@ function HomeContent() {
               <span className="bg-[#ffb900]" />
             </span>
             Microsoft
-          </button>
+          </button>}
         </div>
       </div>
     </div>

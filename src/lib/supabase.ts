@@ -9,6 +9,25 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
+export async function getOAuthProviders() {
+  try {
+    const response = await fetch(`${supabaseUrl}/auth/v1/settings`, {
+      headers: {
+        apikey: supabaseAnonKey!,
+        Authorization: `Bearer ${supabaseAnonKey}`,
+      },
+    })
+    if (!response.ok) return { google: false, azure: false }
+    const settings = await response.json() as { external?: Record<string, boolean> }
+    return {
+      google: settings.external?.google === true,
+      azure: settings.external?.azure === true,
+    }
+  } catch {
+    return { google: false, azure: false }
+  }
+}
+
 export function getAuthRedirectUrl() {
   if (typeof window === 'undefined') {
     return undefined
