@@ -1,7 +1,7 @@
 "use client";
 import { startTransition, useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { CheckCheck, Folder, Plus, Users, LogOut, RefreshCw, Menu, X, Home, ListTodo, MessageSquare, Search, Layers, List, CalendarDays, Sparkles } from 'lucide-react';
+import { CheckCheck, Folder, Plus, Users, LogOut, RefreshCw, Menu, X, Home, ListTodo, MessageSquare, Search, Layers, List, CalendarDays, Sparkles, Settings } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { checked, errorText, initials, loadTasks, type Task, type Workspace, type Project, type Member } from '@/lib/taskflow';
 import Dialog from './Dialog';
@@ -9,6 +9,7 @@ import ProjectView from './ProjectView';
 import WorkspaceOverview from './WorkspaceOverview';
 import WorkspacePlanner from './WorkspacePlanner';
 import WorkspaceAI from './WorkspaceAI';
+import SettingsDialog from './SettingsDialog';
 
 export default function WorkspaceApp() {
   const router = useRouter();
@@ -21,7 +22,7 @@ export default function WorkspaceApp() {
   const [loading, setLoading] = useState(true);
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [error, setError] = useState('');
-  const [modal, setModal] = useState<'workspace' | 'project' | 'space' | 'team' | 'search' | null>(null);
+  const [modal, setModal] = useState<'workspace' | 'project' | 'space' | 'team' | 'search' | 'settings' | null>(null);
   const [section, setSection] = useState<'project' | 'home' | 'mine' | 'chat' | 'planner' | 'ai'>('project');
   const [taskId, setTaskId] = useState<string>();
   const [newTaskDueDate, setNewTaskDueDate] = useState<string>();
@@ -113,18 +114,9 @@ export default function WorkspaceApp() {
       <label className="workspace-picker"><span>WORKSPACE</span><select aria-label="Workspace" value={workspaceId} onChange={e => { setProjects([]); setMembers([]); setProjectId(''); setTaskId(undefined); setWorkspaceId(e.target.value); localStorage.setItem(`tf-workspace:${user.id}`, e.target.value); }}>{!workspaces.length && <option value="">Sua equipe</option>}{workspaces.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select></label>
       <button className="nav-action" onClick={() => setModal('workspace')}><Plus size={16} /> Novo workspace</button>
       <div className="main-links"><button className={`nav-action ${section === 'home' ? 'active' : ''}`} onClick={() => switchSection('home')}><Home size={17} />Visao geral</button><button className={`nav-action ${section === 'mine' ? 'active' : ''}`} onClick={() => switchSection('mine')}><ListTodo size={17} />Minhas tarefas</button><button className={`nav-action ${section === 'chat' ? 'active' : ''}`} onClick={() => switchSection('chat')}><MessageSquare size={17} />Chat da equipe</button></div>
-      
-      <div className="sidebar-section" style={{marginTop: '10px'}}><span>TEMA</span></div>
-      <div style={{display: 'flex', gap: '8px', padding: '0 14px 10px', flexWrap: 'wrap'}}>
-        <button aria-label="Tema roxo" aria-pressed={theme === 'theme-purple'} onClick={() => chooseTheme('theme-purple')} style={{width: '20px', height: '20px', borderRadius: '50%', background: '#7b68ee', border: 'none', cursor: 'pointer'}} title="Roxo"></button>
-        <button aria-label="Tema azul" aria-pressed={theme === 'theme-blue'} onClick={() => chooseTheme('theme-blue')} style={{width: '20px', height: '20px', borderRadius: '50%', background: '#007bff', border: 'none', cursor: 'pointer'}} title="Azul"></button>
-        <button aria-label="Tema esmeralda" aria-pressed={theme === 'theme-emerald'} onClick={() => chooseTheme('theme-emerald')} style={{width: '20px', height: '20px', borderRadius: '50%', background: '#10b981', border: 'none', cursor: 'pointer'}} title="Esmeralda"></button>
-        <button aria-label="Tema rosa" aria-pressed={theme === 'theme-rose'} onClick={() => chooseTheme('theme-rose')} style={{width: '20px', height: '20px', borderRadius: '50%', background: '#f43f5e', border: 'none', cursor: 'pointer'}} title="Rosa"></button>
-        <button aria-label="Tema claro" aria-pressed={theme === 'theme-light'} onClick={() => chooseTheme('theme-light')} style={{width: '20px', height: '20px', borderRadius: '50%', background: '#e5e7eb', border: '2px solid #ccc', cursor: 'pointer'}} title="Claro"></button>
-      </div>
       <div className="sidebar-section"><span>ESPACOS</span><button className="icon-button" aria-label="Nova lista" title="Nova lista" disabled={!workspaceId} onClick={() => setModal('project')}><Plus size={18} /></button></div>
       <nav aria-label="Espacos e listas">{spaces.map((space, index) => <details className="space-group" open key={space}><summary><span className={`space-icon color-${index % 4}`}>{space.slice(0, 1).toUpperCase()}</span><span>{space}</span></summary>{projects.filter(p => (p.space_name || 'Equipe') === space && !p.folder_name).map(listButton)}{[...new Set(projects.filter(p => (p.space_name || 'Equipe') === space && p.folder_name).map(p => p.folder_name))].map(folder => <details open className="folder-group" key={folder}><summary><Folder size={15} /><span>{folder}</span></summary>{projects.filter(p => (p.space_name || 'Equipe') === space && p.folder_name === folder).map(listButton)}</details>)}</details>)}<button className="nav-action" disabled={!workspaceId} onClick={() => setModal('space')}><Plus size={16} />Novo espaco</button></nav>
-      <div className="sidebar-bottom"><button className="nav-action" disabled={!workspace} onClick={() => setModal('team')}><Users size={17} /> Equipe <span className="count">{members.length}</span></button><button className="nav-action" onClick={refresh}><RefreshCw size={16} /> Atualizar equipes</button><div className="account"><span className="avatar">{initials(user.name || 'Conta')}</span><span>{user.name}</span><button className="icon-button" title="Sair" aria-label="Sair" onClick={logout}><LogOut size={17} /></button></div></div>
+      <div className="sidebar-bottom"><button className="nav-action" disabled={!workspace} onClick={() => setModal('team')}><Users size={17} /> Equipe <span className="count">{members.length}</span></button><button className="nav-action" onClick={refresh}><RefreshCw size={16} /> Atualizar equipes</button><div className="account"><span className="avatar">{initials(user.name || 'Conta')}</span><span>{user.name}</span><button className="icon-button" title="Configurações" aria-label="Configurações" onClick={() => setModal('settings')}><Settings size={17} /></button><button className="icon-button" title="Sair" aria-label="Sair" onClick={logout}><LogOut size={17} /></button></div></div>
     </aside>
     <main className="tf-main">
       <div className="global-topbar"><span style={{fontWeight: "600", color: "#111827"}}>{workspace?.name || 'TaskFlow'}</span><button className="global-search" onClick={() => setModal('search')} disabled={!workspace}><Search size={15} />Pesquisar Ctrl K</button><div className="topbar-right-icons"><button className="icon-button" title="Minhas tarefas" aria-label="Minhas tarefas" onClick={() => switchSection('mine')}><CheckCheck size={18} /></button><button className="icon-button" title="Planejador" aria-label="Planejador" onClick={() => switchSection('planner')}><CalendarDays size={18} /></button><button className="icon-button" title="Chat da equipe" aria-label="Chat da equipe" disabled={!projectId} onClick={() => switchSection('chat')}><MessageSquare size={18} /></button><span className="avatar small">{initials(user.name || 'Conta')}</span></div></div>
@@ -138,6 +130,7 @@ export default function WorkspaceApp() {
     }} />}
     {modal === 'team' && workspace && <TeamDialog workspace={workspace} members={members} userId={user.id} onClose={() => { setModal(null); void refresh(); }} />}
     {modal === 'search' && <SearchDialog projects={projects} onClose={() => setModal(null)} onOpen={(project, task) => { setModal(null); selectProject(project, task); }} />}
+    {modal === 'settings' && <SettingsDialog user={user} theme={theme} onThemeChange={chooseTheme} onClose={() => setModal(null)} onNameUpdate={(name) => setUser(prev => ({...prev, name}))} />}
   </div>;
 }
 
