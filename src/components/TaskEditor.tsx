@@ -15,6 +15,7 @@ import {
   type TaskDraft,
 } from '@/lib/taskflow';
 import TaskAttachments from './TaskAttachments';
+import TimeTracker from './TimeTracker';
 
 type Props = {
   task?: Task;
@@ -104,9 +105,10 @@ export default function TaskEditor({
   return (
     <dialog ref={dialogRef} className="task-modal" onCancel={onClose}>
       <header className="task-modal-header">
-        <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <span className={`status-dot ${draft.status}`} />
           <span>{task ? `Tarefa criada em ${displayDate(task.created_at.slice(0, 10))}` : 'Nova tarefa'}</span>
+          {task && <TimeTracker task={task} userId={userId} />}
         </div>
         <button className="icon-button" type="button" aria-label="Fechar tarefa" title="Fechar" onClick={onClose}>
           <X size={19} />

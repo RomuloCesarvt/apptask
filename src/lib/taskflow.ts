@@ -27,6 +27,10 @@ export type Notification = {
   task_id: string; project_id: string; type: 'ASSIGN' | 'COMMENT' | 'STATUS';
   read: boolean; created_at: string;
 };
+export type TimeEntry = {
+  id: string; task_id: string; user_id: string;
+  start_time: string; end_time: string | null; duration: number | null;
+};
 export function errorText(error: unknown): string {
   if (error && typeof error === 'object' && 'message' in error) {
     const message = String(error.message);
