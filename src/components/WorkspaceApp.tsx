@@ -1,6 +1,7 @@
 "use client";
 import { startTransition, useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import { CheckCheck, Folder, Plus, Users, LogOut, RefreshCw, Menu, X, Home, ListTodo, MessageSquare, Search, Layers, List, CalendarDays, Sparkles, Settings } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { checked, errorText, initials, loadTasks, type Task, type Workspace, type Project, type Member } from '@/lib/taskflow';
@@ -13,7 +14,7 @@ import SettingsDialog from './SettingsDialog';
 
 export default function WorkspaceApp() {
   const router = useRouter();
-  const [user, setUser] = useState({ id: '', name: '' });
+  const [user, setUser] = useState<{ id: string; name: string; avatarUrl: string | null }>({ id: '', name: '', avatarUrl: null });
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [workspaceId, setWorkspaceId] = useState('');
   const [projects, setProjects] = useState<Project[]>([]);
@@ -38,7 +39,8 @@ export default function WorkspaceApp() {
       setError('');
       if (error) throw error;
       if (!data.user) { router.replace('/'); return; }
-      setUser({ id: data.user.id, name: data.user.user_metadata.full_name || data.user.email || 'Minha conta' });
+      const profile = await checked<{ display_name: string; avatar_url: string | null }>(supabase.from('tf_profiles').select('display_name,avatar_url').eq('id', data.user.id).single());
+      setUser({ id: data.user.id, name: profile.display_name, avatarUrl: profile.avatar_url });
       await checked(supabase.rpc('tf_accept_invites'));
       const rows = await checked(supabase.from('tf_workspaces').select('*').order('created_at'));
       setWorkspaces(rows);
@@ -116,10 +118,10 @@ export default function WorkspaceApp() {
       <div className="main-links"><button className={`nav-action ${section === 'home' ? 'active' : ''}`} onClick={() => switchSection('home')}><Home size={17} />Visao geral</button><button className={`nav-action ${section === 'mine' ? 'active' : ''}`} onClick={() => switchSection('mine')}><ListTodo size={17} />Minhas tarefas</button><button className={`nav-action ${section === 'chat' ? 'active' : ''}`} onClick={() => switchSection('chat')}><MessageSquare size={17} />Chat da equipe</button></div>
       <div className="sidebar-section"><span>ESPACOS</span><button className="icon-button" aria-label="Nova lista" title="Nova lista" disabled={!workspaceId} onClick={() => setModal('project')}><Plus size={18} /></button></div>
       <nav aria-label="Espacos e listas">{spaces.map((space, index) => <details className="space-group" open key={space}><summary><span className={`space-icon color-${index % 4}`}>{space.slice(0, 1).toUpperCase()}</span><span>{space}</span></summary>{projects.filter(p => (p.space_name || 'Equipe') === space && !p.folder_name).map(listButton)}{[...new Set(projects.filter(p => (p.space_name || 'Equipe') === space && p.folder_name).map(p => p.folder_name))].map(folder => <details open className="folder-group" key={folder}><summary><Folder size={15} /><span>{folder}</span></summary>{projects.filter(p => (p.space_name || 'Equipe') === space && p.folder_name === folder).map(listButton)}</details>)}</details>)}<button className="nav-action" disabled={!workspaceId} onClick={() => setModal('space')}><Plus size={16} />Novo espaco</button></nav>
-      <div className="sidebar-bottom"><button className="nav-action" disabled={!workspace} onClick={() => setModal('team')}><Users size={17} /> Equipe <span className="count">{members.length}</span></button><button className="nav-action" onClick={refresh}><RefreshCw size={16} /> Atualizar equipes</button><div className="account"><span className="avatar">{initials(user.name || 'Conta')}</span><span>{user.name}</span><button className="icon-button" title="Configurações" aria-label="Configurações" onClick={() => setModal('settings')}><Settings size={17} /></button><button className="icon-button" title="Sair" aria-label="Sair" onClick={logout}><LogOut size={17} /></button></div></div>
+      <div className="sidebar-bottom"><button className="nav-action" disabled={!workspace} onClick={() => setModal('team')}><Users size={17} /> Equipe <span className="count">{members.length}</span></button><button className="nav-action" onClick={refresh}><RefreshCw size={16} /> Atualizar equipes</button><div className="account"><span className="avatar">{user.avatarUrl ? <Image src={user.avatarUrl} alt="Foto do perfil" width={32} height={32} unoptimized style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} /> : initials(user.name || 'Conta')}</span><span>{user.name}</span><button className="icon-button" title="Configurações" aria-label="Configurações" onClick={() => setModal('settings')}><Settings size={17} /></button><button className="icon-button" title="Sair" aria-label="Sair" onClick={logout}><LogOut size={17} /></button></div></div>
     </aside>
     <main className="tf-main">
-      <div className="global-topbar"><span style={{fontWeight: "600", color: "#111827"}}>{workspace?.name || 'TaskFlow'}</span><button className="global-search" onClick={() => setModal('search')} disabled={!workspace}><Search size={15} />Pesquisar Ctrl K</button><div className="topbar-right-icons"><button className="icon-button" title="Minhas tarefas" aria-label="Minhas tarefas" onClick={() => switchSection('mine')}><CheckCheck size={18} /></button><button className="icon-button" title="Planejador" aria-label="Planejador" onClick={() => switchSection('planner')}><CalendarDays size={18} /></button><button className="icon-button" title="Chat da equipe" aria-label="Chat da equipe" disabled={!projectId} onClick={() => switchSection('chat')}><MessageSquare size={18} /></button><span className="avatar small">{initials(user.name || 'Conta')}</span></div></div>
+      <div className="global-topbar"><span style={{fontWeight: "600", color: "#111827"}}>{workspace?.name || 'TaskFlow'}</span><button className="global-search" onClick={() => setModal('search')} disabled={!workspace}><Search size={15} />Pesquisar Ctrl K</button><div className="topbar-right-icons"><button className="icon-button" title="Minhas tarefas" aria-label="Minhas tarefas" onClick={() => switchSection('mine')}><CheckCheck size={18} /></button><button className="icon-button" title="Planejador" aria-label="Planejador" onClick={() => switchSection('planner')}><CalendarDays size={18} /></button><button className="icon-button" title="Chat da equipe" aria-label="Chat da equipe" disabled={!projectId} onClick={() => switchSection('chat')}><MessageSquare size={18} /></button><span className="avatar small">{user.avatarUrl ? <Image src={user.avatarUrl} alt="Foto do perfil" width={32} height={32} unoptimized style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} /> : initials(user.name || 'Conta')}</span></div></div>
       {error && <div className="error-banner" role="alert">{error}<button className="text-button" onClick={refresh}>Tentar novamente</button></div>}
       {loading || workspaceLoading ? <div className="empty-state"><RefreshCw className="spin" size={28} /><h2>Carregando sua equipe...</h2></div> : workspace && section === 'ai' ? <WorkspaceAI workspaceId={workspace.id} userId={user.id} projects={projects} onOpen={selectProject} /> : workspace && section === 'planner' ? <WorkspacePlanner projects={projects} userId={user.id} onOpen={selectProject} onCreate={createTask} /> : workspace && (section === 'home' || section === 'mine') ? <WorkspaceOverview key={`${workspaceId}:${section}`} projects={projects} userId={user.id} mine={section === 'mine'} onOpen={selectProject} /> : project && workspace ? <ProjectView key={`${project.id}:${section}:${taskId || ''}:${newTaskDueDate || ''}`} project={project} workspace={workspace} members={members} userId={user.id} initialView={section === 'chat' ? 'chat' : 'list'} initialTaskId={taskId} initialDueDate={newTaskDueDate} /> : <div className="empty-state"><CheckCheck size={48} /><h1>{workspaces.length ? 'Crie sua primeira lista' : 'Seu trabalho, em equipe'}</h1><button className="primary" disabled={!!error} onClick={() => setModal(workspaceId ? 'project' : 'workspace')}><Plus size={18} />{workspaceId ? 'Criar lista' : 'Criar workspace'}</button></div>}
     </main>
@@ -130,7 +132,7 @@ export default function WorkspaceApp() {
     }} />}
     {modal === 'team' && workspace && <TeamDialog workspace={workspace} members={members} userId={user.id} onClose={() => { setModal(null); void refresh(); }} />}
     {modal === 'search' && <SearchDialog projects={projects} onClose={() => setModal(null)} onOpen={(project, task) => { setModal(null); selectProject(project, task); }} />}
-    {modal === 'settings' && <SettingsDialog user={user} theme={theme} onThemeChange={chooseTheme} onClose={() => setModal(null)} onNameUpdate={(name) => setUser(prev => ({...prev, name}))} />}
+    {modal === 'settings' && <SettingsDialog user={user} theme={theme} onThemeChange={chooseTheme} onClose={() => setModal(null)} onNameUpdate={(name, avatarUrl) => { setUser(prev => ({...prev, name, avatarUrl})); setMembers(prev => prev.map(member => member.user_id === user.id ? {...member, tf_profiles: {...member.tf_profiles, display_name: name}} : member)); }} />}
   </div>;
 }
 
