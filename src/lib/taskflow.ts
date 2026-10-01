@@ -22,6 +22,11 @@ export type Attachment = {
   file_name: string; file_size: number; mime_type: string; url: string;
   created_at: string;
 };
+export type Notification = {
+  id: string; user_id: string; actor_id: string | null;
+  task_id: string; project_id: string; type: 'ASSIGN' | 'COMMENT' | 'STATUS';
+  read: boolean; created_at: string;
+};
 export function errorText(error: unknown): string {
   if (error && typeof error === 'object' && 'message' in error) {
     const message = String(error.message);

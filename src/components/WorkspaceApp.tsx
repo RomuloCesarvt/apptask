@@ -2,7 +2,7 @@
 import { startTransition, useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { CheckCheck, Folder, Plus, Users, LogOut, RefreshCw, Menu, X, Home, ListTodo, MessageSquare, Search, Layers, List, CalendarDays, Sparkles, Settings } from 'lucide-react';
+import { CheckCheck, Folder, Plus, Users, LogOut, RefreshCw, Menu, X, Home, ListTodo, MessageSquare, Search, Layers, List, CalendarDays, Sparkles, Settings, Bell } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { checked, errorText, initials, loadTasks, type Task, type Workspace, type Project, type Member } from '@/lib/taskflow';
 import Dialog from './Dialog';
@@ -11,6 +11,7 @@ import WorkspaceOverview from './WorkspaceOverview';
 import WorkspacePlanner from './WorkspacePlanner';
 import WorkspaceAI from './WorkspaceAI';
 import SettingsDialog from './SettingsDialog';
+import NotificationsPanel from './NotificationsPanel';
 
 export default function WorkspaceApp() {
   const router = useRouter();
@@ -23,13 +24,14 @@ export default function WorkspaceApp() {
   const [loading, setLoading] = useState(true);
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [error, setError] = useState('');
-  const [modal, setModal] = useState<'workspace' | 'project' | 'space' | 'team' | 'search' | 'settings' | null>(null);
+  const [modal, setModal] = useState<'workspace' | 'project' | 'space' | 'team' | 'search' | 'settings' | 'notifications' | null>(null);
   const [section, setSection] = useState<'project' | 'home' | 'mine' | 'chat' | 'planner' | 'ai'>('project');
   const [taskId, setTaskId] = useState<string>();
   const [newTaskDueDate, setNewTaskDueDate] = useState<string>();
   const [mobileNav, setMobileNav] = useState(false);
   const [theme, setTheme] = useState('theme-purple');
   const [attentionCount, setAttentionCount] = useState(0);
+  const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
   const [revision, setRevision] = useState(0);
   const workspace = workspaces.find(w => w.id === workspaceId);
   const project = projects.find(p => p.id === projectId);
@@ -95,6 +97,21 @@ export default function WorkspaceApp() {
     }).catch(() => { if (active) setAttentionCount(0); });
     return () => { active = false; };
   }, [projects]);
+  useEffect(() => {
+    if (!user.id) return;
+    let active = true;
+    async function loadNotifications() {
+      try {
+        const { count } = await supabase.from('tf_notifications').select('id', { count: 'exact', head: true }).eq('user_id', user.id).eq('read', false);
+        if (active) setUnreadNotificationsCount(count || 0);
+      } catch (e) {}
+    }
+    void loadNotifications();
+    const channel = supabase.channel(`notifications:${user.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tf_notifications', filter: `user_id=eq.${user.id}` }, () => { void loadNotifications(); })
+      .subscribe();
+    return () => { active = false; void supabase.removeChannel(channel); };
+  }, [user.id, modal]);
   async function logout() {
     const { error } = await supabase.auth.signOut();
     if (error) setError(errorText(error)); else router.replace('/');
@@ -121,7 +138,7 @@ export default function WorkspaceApp() {
       <div className="sidebar-bottom"><button className="nav-action" disabled={!workspace} onClick={() => setModal('team')}><Users size={17} /> Equipe <span className="count">{members.length}</span></button><button className="nav-action" onClick={refresh}><RefreshCw size={16} /> Atualizar equipes</button><div className="account"><span className="avatar">{user.avatarUrl ? <Image src={user.avatarUrl} alt="Foto do perfil" width={32} height={32} unoptimized style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} /> : initials(user.name || 'Conta')}</span><span>{user.name}</span><button className="icon-button" title="Configurações" aria-label="Configurações" onClick={() => setModal('settings')}><Settings size={17} /></button><button className="icon-button" title="Sair" aria-label="Sair" onClick={logout}><LogOut size={17} /></button></div></div>
     </aside>
     <main className="tf-main">
-      <div className="global-topbar"><span style={{fontWeight: "600", color: "#111827"}}>{workspace?.name || 'TaskFlow'}</span><button className="global-search" onClick={() => setModal('search')} disabled={!workspace}><Search size={15} />Pesquisar Ctrl K</button><div className="topbar-right-icons"><button className="icon-button" title="Minhas tarefas" aria-label="Minhas tarefas" onClick={() => switchSection('mine')}><CheckCheck size={18} /></button><button className="icon-button" title="Planejador" aria-label="Planejador" onClick={() => switchSection('planner')}><CalendarDays size={18} /></button><button className="icon-button" title="Chat da equipe" aria-label="Chat da equipe" disabled={!projectId} onClick={() => switchSection('chat')}><MessageSquare size={18} /></button><span className="avatar small">{user.avatarUrl ? <Image src={user.avatarUrl} alt="Foto do perfil" width={32} height={32} unoptimized style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} /> : initials(user.name || 'Conta')}</span></div></div>
+      <div className="global-topbar"><span style={{fontWeight: "600", color: "#111827"}}>{workspace?.name || 'TaskFlow'}</span><button className="global-search" onClick={() => setModal('search')} disabled={!workspace}><Search size={15} />Pesquisar Ctrl K</button><div className="topbar-right-icons"><button className="icon-button" style={{position: 'relative'}} title="Notificações" aria-label="Notificações" onClick={() => setModal(modal === 'notifications' ? null : 'notifications')}><Bell size={18} />{unreadNotificationsCount > 0 && <span style={{position: 'absolute', top: '-2px', right: '-2px', background: '#ef4444', color: 'white', borderRadius: '50%', width: '14px', height: '14px', fontSize: '9px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold'}}>{unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}</span>}</button><button className="icon-button" title="Minhas tarefas" aria-label="Minhas tarefas" onClick={() => switchSection('mine')}><CheckCheck size={18} /></button><button className="icon-button" title="Planejador" aria-label="Planejador" onClick={() => switchSection('planner')}><CalendarDays size={18} /></button><button className="icon-button" title="Chat da equipe" aria-label="Chat da equipe" disabled={!projectId} onClick={() => switchSection('chat')}><MessageSquare size={18} /></button><span className="avatar small">{user.avatarUrl ? <Image src={user.avatarUrl} alt="Foto do perfil" width={32} height={32} unoptimized style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} /> : initials(user.name || 'Conta')}</span></div></div>
       {error && <div className="error-banner" role="alert">{error}<button className="text-button" onClick={refresh}>Tentar novamente</button></div>}
       {loading || workspaceLoading ? <div className="empty-state"><RefreshCw className="spin" size={28} /><h2>Carregando sua equipe...</h2></div> : workspace && section === 'ai' ? <WorkspaceAI workspaceId={workspace.id} userId={user.id} projects={projects} onOpen={selectProject} /> : workspace && section === 'planner' ? <WorkspacePlanner projects={projects} userId={user.id} onOpen={selectProject} onCreate={createTask} /> : workspace && (section === 'home' || section === 'mine') ? <WorkspaceOverview key={`${workspaceId}:${section}`} projects={projects} userId={user.id} mine={section === 'mine'} onOpen={selectProject} /> : project && workspace ? <ProjectView key={`${project.id}:${section}:${taskId || ''}:${newTaskDueDate || ''}`} project={project} workspace={workspace} members={members} userId={user.id} initialView={section === 'chat' ? 'chat' : 'list'} initialTaskId={taskId} initialDueDate={newTaskDueDate} /> : <div className="empty-state"><CheckCheck size={48} /><h1>{workspaces.length ? 'Crie sua primeira lista' : 'Seu trabalho, em equipe'}</h1><button className="primary" disabled={!!error} onClick={() => setModal(workspaceId ? 'project' : 'workspace')}><Plus size={18} />{workspaceId ? 'Criar lista' : 'Criar workspace'}</button></div>}
     </main>
@@ -133,6 +150,7 @@ export default function WorkspaceApp() {
     {modal === 'team' && workspace && <TeamDialog workspace={workspace} members={members} userId={user.id} onClose={() => { setModal(null); void refresh(); }} />}
     {modal === 'search' && <SearchDialog projects={projects} onClose={() => setModal(null)} onOpen={(project, task) => { setModal(null); selectProject(project, task); }} />}
     {modal === 'settings' && <SettingsDialog user={user} theme={theme} onThemeChange={chooseTheme} onClose={() => setModal(null)} onNameUpdate={(name, avatarUrl) => { setUser(prev => ({...prev, name, avatarUrl})); setMembers(prev => prev.map(member => member.user_id === user.id ? {...member, tf_profiles: {...member.tf_profiles, display_name: name}} : member)); }} />}
+    {modal === 'notifications' && <NotificationsPanel onClose={() => setModal(null)} onOpenTask={selectProject} />}
   </div>;
 }
 
