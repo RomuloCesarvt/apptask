@@ -17,6 +17,11 @@ export type Task = {
   created_by: string; created_at: string; updated_at: string;
 };
 export type TaskDraft = Pick<Task, 'title' | 'description' | 'status' | 'priority' | 'assignee_id' | 'due_date' | 'parent_id'>;
+export type Attachment = {
+  id: string; task_id: string; author_id: string;
+  file_name: string; file_size: number; mime_type: string; url: string;
+  created_at: string;
+};
 export function errorText(error: unknown): string {
   if (error && typeof error === 'object' && 'message' in error) {
     const message = String(error.message);

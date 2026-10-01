@@ -14,6 +14,7 @@ import {
   type Task,
   type TaskDraft,
 } from '@/lib/taskflow';
+import TaskAttachments from './TaskAttachments';
 
 type Props = {
   task?: Task;
@@ -23,6 +24,7 @@ type Props = {
   tasks: Task[];
   comments: Comment[];
   members: Member[];
+  userId: string;
   onClose: () => void;
   onSave: (draft: TaskDraft) => Promise<void>;
   onArchive?: () => Promise<void>;
@@ -39,6 +41,7 @@ export default function TaskEditor({
   tasks,
   comments,
   members,
+  userId,
   onClose,
   onSave,
   onArchive,
@@ -184,6 +187,8 @@ export default function TaskEditor({
               ))}
             </section>
           )}
+
+          {task && <TaskAttachments task={task} userId={userId} />}
 
           {error && <p className="error-text" role="alert">{error}</p>}
           <footer className="task-actions">
